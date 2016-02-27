@@ -14,6 +14,7 @@ import matplotlib.cm as cm
 import cPickle
 import time
 import bitstring
+from bitcount import bitcount
 
 def help():
     print """
@@ -114,6 +115,19 @@ def jaccard_sim(m1, m2, verbose=False):
         jc = 1.0
     return jc
     
+def jaccard_sim_numpy_packed(m1, m2, verbose=False):
+    """Compute Jaccard similarity of two NumPy packed arrays."""
+
+    intersect_count = bitcount(m1 & m2)
+    union_count = bitcount(m1 | m2)
+    if verbose:
+        print "js: %d/%d" % (intersect_count, union_count)
+    try:
+        jc = intersect_count / float(union_count)
+    except ZeroDivisionError:
+        jc = 1.0
+    return jc
+    
 def jaccard_sim_bitstring(m1, m2, verbose=False):
     """Compute Jaccard similarity of two bitstring boolean arrays."""
 
@@ -202,9 +216,45 @@ show_glyph(glyphs[2])
 show_glyph(glyphs[1] ^ glyphs[2])
 print jaccard_sim(glyphs[1], glyphs[2])
 
-# optimize by packing the bits
 n = len(glyphs)
 p = glyphs[0].size
+
+# optimize by packing the bits with numpy.packbits
+cast_to_uint8 = np.array([0], dtype=np.uint8)
+dummy_ba = np.packbits(np.array([True]*p) + cast_to_uint8)
+b_glyphs = [None]*n
+print "converting to bitstrings using numpy.packbits",
+time_start = time.time()
+for i in range(n):
+    try:
+        ba = np.packbits(glyphs[i] + cast_to_uint8)
+    except TypeError:
+        ba = dummy_ba
+    b_glyphs[i] = ba
+    print '.',
+print
+print "converted to bitstrings in %f seconds" % (time.time()-time_start)
+print "computing similarity matrix with bitcount",
+time_start = time.time()
+sim = np.zeros((n,n), dtype=float)
+for i in range(n):
+    sim[i, i] = 1.0
+    for j in range(i+1, n):
+        try:
+            s = jaccard_sim_numpy_packed(b_glyphs[i], b_glyphs[j], verbose=(0,1315)==(i,j))
+        except TypeError:
+            # a glyph exceeded the bounding box and therefore
+            # was probably a non-textual item such as a line
+            s = 0.0
+        sim[i, j] = s
+        sim[j, i] = s
+    print '.',
+print
+
+print "computed (bitstring) similarity matrix in %f seconds" % (time.time()-time_start)
+print sim
+
+# optimize by packing the bits with bitstring
 dummy_ba = [True]*p
 b_glyphs = [None]*n
 fmt = "%d*bool" % p
