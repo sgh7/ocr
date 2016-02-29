@@ -14,6 +14,7 @@ from skimage.morphology import disk
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import cPickle
+from ocr_utils import *
 
 def help():
     print """
@@ -283,8 +284,6 @@ plt.show()
 
 
 if outfname:
-    class Pickled(object):
-        pass
     o = Pickled()
     o.gly_min_x = gly_min_x
     o.gly_max_x = gly_max_x

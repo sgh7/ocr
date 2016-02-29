@@ -18,6 +18,7 @@ import cPickle
 import time
 import bitstring
 from bitcount import bitcount
+from ocr_utils import *
 
 CALC_NONE  = 0
 CALC_PACKBITS = 1
@@ -54,9 +55,6 @@ classify any glyphs that are not yet within the training data,
 which is then output.
 
 """ % (progname, progname)
-
-class Pickled(object):
-    pass
 
 class TrainDataItem(object):
     def __init__(self, glyph, label=None):
