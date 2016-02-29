@@ -63,41 +63,6 @@ class TrainDataItem(object):
         self.glyph = glyph
         self.label = label
 
-
-def plot_with_histogram(img, title=''):
-    print img.dtype.name, img.ravel().min(), img.ravel().max()
-    #img_bytes = img_as_ubyte(img, force_copy=True)
-    hist = np.histogram(img, bins=256)
-    fig, (ax1, ax2) = plt.subplots(1, 2)
-    ax1.imshow(img, interpolation='nearest', cmap=plt.cm.gray)
-    ax1.axis('off')
-    ax1.set_title(title)
-    ax2.plot(hist[1][:-1], hist[0], lw=2)
-    ax2.set_title('Histogram of grey values')
-    plt.show()
-
-class Contour(object):
-    def __init__(self, cont):
-        self.cont = cont
-        self.cent = None
-
-    def centroid(self):
-        if not self.cent:
-            self.cent = self.cont[::, 0].mean(), self.cont[::, 1].mean()
-        return self.cent
-
-    def size(self):
-        return self.cont[::, 0].max() - self.cont[::, 0].min(),\
-               self.cont[::, 1].max() - self.cont[::, 1].min(),\
-
-    def npoints(self):
-        return self.cont.shape[0]
-
-    def is_closed(self):
-        # FIXME: make this more succinct
-        return self.cont[0, 0] == self.cont[-1, 0] and \
-               self.cont[0, 1] == self.cont[-1, 1]
-
 def show_glyph(bool_matrix):
     w, h = bool_matrix.shape
     print w, h, np.bincount(bool_matrix.ravel())
@@ -158,26 +123,6 @@ def jaccard_sim_bitstring(m1, m2, verbose=False):
     return jc
     
 
-def glyph_copy(mask, labeled_glyphs, label, size_x, size_y, gly_min_x, gly_min_y, w, h):
-    """copy glyph from original image.
-
-    mask    original image after modified Otsu algorithm applied
-    labeled_glyphs result of labelling original image
-    label           label to be copied
-    size_x, size_y  dimensions of output bitmap - should be same for all
-                    invocations
-    gly_min_x, gly_min_y  offsets within original image
-    w, h            width, height of bounding box of labeled region"""
-
-    out = np.zeros((size_x, size_y), dtype=np.bool)
-    for i in range(w):
-        for j in range(h):
-            if labeled_glyphs[gly_min_x+i, gly_min_y+j] == label:
-                out[i, j] = mask[gly_min_x+i, gly_min_y+j]
-    print label, size_x, size_y, gly_min_x, gly_min_y, w, h
-    show_glyph(out)
-    return out
-    
 def verify_square(m):
     if len(m.shape) != 2:
         print >>sys.stderr, "bad shape", m.shape
