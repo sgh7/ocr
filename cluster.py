@@ -232,6 +232,106 @@ def validate_cl_method(m):
     print >>sys.stderr, "valid methods are: ", ' '.join(valid_methods)
     sys.exit(3)
 
+def compose_cl_view(glyphs, clusters, labels, width, margins_tblr, hs, vs):
+    """Create image file showing results of clustering.
+
+    glyphs       N x (w x h) array of incoming glyphs 
+    clusters     per-glyph is the assigned cluster
+    labels       N-element list containing labels or None
+    width        width in pixels of the resulting image
+    margins_tblr tuple of (top,bottom,left,right) margins
+    hs           horizontal spacing between glyphs
+    vs           vertical spacing between glyphs
+    """
+
+    counts = Counter()
+    for cl in clusters:
+        counts[cl] += 1
+    cl_by_size = counts.most_common(None)
+
+    # image interior width
+    iw = width - margins_tblr[2] - margins_tblr[3]
+    lmarg = margins_tblr[2]
+    tmarg = margins_tblr[0]
+
+    # glyph width and height
+    gw = glyphs[0].shape[0]
+    gh = glyphs[0].shape[1]
+
+    ###gc = [None]*len(glyphs)    # which cluster each glyph assigned to
+
+    def advance(x, y):
+        x += gw+hs
+        if x >= iw:
+            x = hs
+            y += gh+vs
+        return (x, y)
+        
+    # pre-allocate positions of glyphs within clusters
+    # ranked by descending cluster size
+    cl_render_positions = [None]*(len(cl_by_size)+1)
+    red_markers = [None]*len(cl_by_size)
+    y = vs
+    x = hs
+    for i, (cl, count) in enumerate(cl_by_size):
+        cl_rp = [None]*count
+        for j in range(count):
+            cl_rp[j] = (x,y)
+            x, y = advance(x, y)
+        x, y = advance(x, y)   
+        red_markers[i] = (x,y)
+        x, y = advance(x, y)
+        cl_render_positions[cl] = cl_rp
+            
+    height = y+vs+gh+margins_tblr[0] + margins_tblr[1]
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+
+    # fill the image
+
+    # first the glyphs, via the clusters
+    cl_used = [0]*(1+len(cl_by_size))   # indexes through each cluster
+    for glyph_index, cl in enumerate(clusters):
+        # for each glyph, which cluster (origin-1 indexing!!) it's in
+        try:
+            (x, y) = cl_render_positions[cl][cl_used[cl]]
+        except IndexError:
+            print "*ouch(%d)*" % cl
+            continue
+        x += lmarg
+        y += tmarg
+        cl_used[cl] += 1
+        gl = glyphs[glyph_index]
+        if gl is None:
+            continue
+        if labels[glyph_index] is None:
+            colors = [0,1,2]
+        else:
+            colors = [2]      # labeled glyphs rendered blue
+        print "gli %d in cl %d  at (%d,%d) %s" % (glyph_index, cl, y, x, "blue" if labels[glyph_index] else "white")
+        for i in range(gw):
+            for j in range(gh):
+                try:
+                    img[y+j, x+i, colors] = gl[j,i]*128
+                except IndexError:
+                    print "*yikes(%d,%d)*" % (y+j, x+i)
+                except ValueError:
+                    print "missing glyph at %d" % (glyph_index)
+            
+
+    # now the red lines separating the clusters
+    for rm in red_markers:
+        (x,y) = rm
+        x += lmarg
+        y += tmarg
+        for i in range(gw/2-1, gw/2+1):
+            for j in range(gh):
+                try:
+                    img[y+j, x+i, 0] = 128
+                except IndexError:
+                    print "*yikes(%d,%d)*" % (y+j, x+i)
+    return img
+
+
 def help():
     print """
 %s glyph clustering and training for OCR
@@ -443,105 +543,6 @@ if out_train_file:
             break
 
 
-def compose_cl_view(glyphs, clusters, labels, width, margins_tblr, hs, vs):
-    """Create image file showing results of clustering.
-
-    glyphs       N x (w x h) array of incoming glyphs 
-    clusters     per-glyph is the assigned cluster
-    labels       N-element list containing labels or None
-    width        width in pixels of the resulting image
-    margins_tblr tuple of (top,bottom,left,right) margins
-    hs           horizontal spacing between glyphs
-    vs           vertical spacing between glyphs"""
-
-    counts = Counter()
-    for cl in clusters:
-        counts[cl] += 1
-    cl_by_size = counts.most_common(None)
-
-    # image interior width
-    iw = width - margins_tblr[2] - margins_tblr[3]
-    lmarg = margins_tblr[2]
-    tmarg = margins_tblr[0]
-
-    # glyph width and height
-    gw = glyphs[0].shape[0]
-    gh = glyphs[0].shape[1]
-
-    ###gc = [None]*len(glyphs)    # which cluster each glyph assigned to
-
-    def advance(x, y):
-        x += gw+hs
-        if x >= iw:
-            x = hs
-            y += gh+vs
-        return (x, y)
-        
-    # pre-allocate positions of glyphs within clusters
-    # ranked by descending cluster size
-    cl_render_positions = [None]*(len(cl_by_size)+1)
-    red_markers = [None]*len(cl_by_size)
-    y = vs
-    x = hs
-    for i, (cl, count) in enumerate(cl_by_size):
-        cl_rp = [None]*count
-        for j in range(count):
-            cl_rp[j] = (x,y)
-            x, y = advance(x, y)
-        x, y = advance(x, y)   
-        red_markers[i] = (x,y)
-        x, y = advance(x, y)
-        cl_render_positions[cl] = cl_rp
-            
-    height = y+vs+gh+margins_tblr[0] + margins_tblr[1]
-    img = np.zeros((height, width, 3), dtype=np.uint8)
-
-    # fill the image
-
-    # first the glyphs, via the clusters
-    cl_used = [0]*(1+len(cl_by_size))   # indexes through each cluster
-    for glyph_index, cl in enumerate(clusters):
-        # for each glyph, which cluster (origin-1 indexing!!) it's in
-        try:
-            (x, y) = cl_render_positions[cl][cl_used[cl]]
-        except IndexError:
-            print "*ouch(%d)*" % cl
-            continue
-        x += lmarg
-        y += tmarg
-        cl_used[cl] += 1
-        gl = glyphs[glyph_index]
-        if gl is None:
-            continue
-        if labels[glyph_index] is None:
-            colors = [0,1,2]
-        else:
-            colors = [2]      # labeled glyphs rendered blue
-        print "gli %d in cl %d  at (%d,%d) %s" % (glyph_index, cl, y, x, "blue" if labels[glyph_index] else "white")
-        for i in range(gw):
-            for j in range(gh):
-                try:
-                    img[y+j, x+i, colors] = gl[j,i]*128
-                except IndexError:
-                    print "*yikes(%d,%d)*" % (y+j, x+i)
-                except ValueError:
-                    print "missing glyph at %d" % (glyph_index)
-            
-
-    # now the red lines separating the clusters
-    for rm in red_markers:
-        (x,y) = rm
-        x += lmarg
-        y += tmarg
-        for i in range(gw/2-1, gw/2+1):
-            for j in range(gh):
-                try:
-                    img[y+j, x+i, 0] = 128
-                except IndexError:
-                    print "*yikes(%d,%d)*" % (y+j, x+i)
-                
-    
-    return img
 
 if w_cluster_file:
     print "composing cluster view image"
