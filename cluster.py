@@ -29,11 +29,6 @@ CALC_FROMFILE = 5
 CALC_MAX = 5
 
 
-class TrainDataItem(object):
-    def __init__(self, glyph, label=None):
-        self.glyph = glyph
-        self.label = label
-
 def true_count(m):
     """Count number of True values in a boolean array.
 
