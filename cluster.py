@@ -26,35 +26,8 @@ CALC_BITSTRING = 2
 CALC_NUMPY = 3
 CALC_SCIPY = 4
 CALC_FROMFILE = 5
+CALC_MAX = 5
 
-def help():
-    print """
-%s glyph clustering and training for OCR
-
-Use:
- %s [options] <pickle-files>
-
-options:
-
--h         this help
--v         be verbose
--s <input-similarities file>
--S <output-similarities file>
--t <input-training data file>
--T <output-training data file>
--m <method> specify method for determining distances between clusters
--r <threshold>  specify clustering threshold
--w <cluster-show-file>   write character glyphs to this image file
-                         ordered by cluster
-
-   Maintain training data.  Glyphs from pickle files are merged
-with any existing training data files and clustered.  The program
-then selects up to a constant number of samples from each cluster
-including any existing training data and prompts the user to
-classify any glyphs that are not yet within the training data,
-which is then output.
-
-""" % (progname, progname)
 
 class TrainDataItem(object):
     def __init__(self, glyph, label=None):
@@ -114,7 +87,16 @@ def jaccard_sim_bitstring(m1, m2, verbose=False):
         jc = 1.0
     return jc
     
-def calc_similarity_matrix(glyphs, sim_calc, n, p):
+def calc_similarity_matrix(glyphs, sim_calc, n, p, in_sim_file):
+    """Compute similarity matrix.
+
+    glyphs -- 
+    sim_calc -- method index
+    n  --
+    p --
+    in_sim_file -- name of file containing matrix to be read in and returned
+    """
+    #FIXME ... above docstring
     if sim_calc == CALC_PACKBITS:
         # optimize by packing the bits with numpy.packbits
         cast_to_uint8 = np.array([0], dtype=np.uint8)
@@ -224,7 +206,7 @@ def calc_similarity_matrix(glyphs, sim_calc, n, p):
             o = cPickle.load(f)
             sim = o.sim
     else:
-        print >>sys.stderr, "sim_calc method undefined."
+        print >>sys.stderr, "sim_calc method %d undefined." % sim_calc
         sys.exit(2)
     return sim
 
@@ -250,6 +232,36 @@ def validate_cl_method(m):
     print >>sys.stderr, "valid methods are: ", ' '.join(valid_methods)
     sys.exit(3)
 
+def help():
+    print """
+%s glyph clustering and training for OCR
+
+Use:
+ %s [options] <pickle-files>
+
+options:
+
+-h         this help
+-v         be verbose
+-s <input-similarities file>
+-c <method> specify method to calculate similarity matrix [1..%d]
+-S <output-similarities file>
+-t <input-training data file>
+-T <output-training data file>
+-m <method> specify method for determining distances between clusters
+-r <threshold>  specify clustering threshold
+-w <cluster-show-file>   write character glyphs to this image file
+                         ordered by cluster
+
+   Maintain training data.  Glyphs from pickle files are merged
+with any existing training data files and clustered.  The program
+then selects up to a constant number of samples from each cluster
+including any existing training data and prompts the user to
+classify any glyphs that are not yet within the training data,
+which is then output.
+
+""" % (progname, progname, CALC_MAX)
+
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 
 progname = sys.argv[0]
@@ -272,7 +284,7 @@ sim_calc = CALC_PACKBITS
 #sim_calc = CALC_SCIPY
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvt:T:s:S:m:r:w:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvt:T:s:S:m:r:w:c:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -290,6 +302,8 @@ for flag, value in opts:
     elif flag == '-s':
         sim_calc = CALC_FROMFILE
         in_sim_file = value
+    elif flag == '-c':
+        sim_calc = int(value)
     elif flag == '-S':
         out_sim_file = value
     elif flag == '-m':
@@ -337,7 +351,7 @@ if False:
 n = len(glyphs)
 p = glyphs[0].size
 
-sim = calc_similarity_matrix(glyphs, sim_calc, n, p)
+sim = calc_similarity_matrix(glyphs, sim_calc, n, p, in_sim_file)
 
 print sim
 
