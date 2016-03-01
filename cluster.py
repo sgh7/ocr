@@ -120,6 +120,121 @@ def jaccard_sim_bitstring(m1, m2, verbose=False):
         jc = 1.0
     return jc
     
+def calc_similarity_matrix(glyphs, sim_calc, n, p):
+    if sim_calc == CALC_PACKBITS:
+        # optimize by packing the bits with numpy.packbits
+        cast_to_uint8 = np.array([0], dtype=np.uint8)
+        dummy_ba = np.packbits(np.array([True]*p) + cast_to_uint8)
+        b_glyphs = [None]*n
+        print "converting to bitstrings using numpy.packbits",
+        time_start = time.time()
+        for i in range(n):
+            try:
+                ba = np.packbits(glyphs[i] + cast_to_uint8)
+            except TypeError:
+                ba = dummy_ba
+            b_glyphs[i] = ba
+            print '.',
+        print
+        print "converted to bitstrings in %f seconds" % (time.time()-time_start)
+        print "computing similarity matrix with bitcount",
+        time_start = time.time()
+        sim = np.zeros((n,n), dtype=float)
+        for i in range(n):
+            sim[i, i] = 1.0
+            for j in range(i+1, n):
+                try:
+                    s = jaccard_sim_numpy_packed(b_glyphs[i], b_glyphs[j], verbose=(0,1315)==(i,j))
+                except TypeError:
+                    # a glyph exceeded the bounding box and therefore
+                    # was probably a non-textual item such as a line
+                    s = 0.0
+                sim[i, j] = s
+                sim[j, i] = s
+            print '.',
+        print
+        
+        print "computed (bitstring) similarity matrix in %f seconds" % (time.time()-time_start)
+        
+    elif sim_calc == CALC_BITSTRING:
+        # optimize by packing the bits with bitstring
+        dummy_ba = [True]*p
+        b_glyphs = [None]*n
+        fmt = "%d*bool" % p
+        print "converting to bitstrings",
+        time_start = time.time()
+        for i in range(n):
+            try:
+                ba = glyphs[i].ravel().tolist()
+            except AttributeError:
+                ba = dummy_ba
+            b_glyphs[i] = bitstring.pack(fmt, *ba)
+            print '.',
+        print
+        print "converted to bitstrings in %f seconds" % (time.time()-time_start)
+        print "computing similarity matrix with bitstring",
+        time_start = time.time()
+        sim = np.zeros((n,n), dtype=float)
+        for i in range(n):
+            sim[i, i] = 1.0
+            for j in range(i+1, n):
+                try:
+                    s = jaccard_sim_bitstring(b_glyphs[i], b_glyphs[j], verbose=(0,1315)==(i,j))
+                except TypeError:
+                    # a glyph exceeded the bounding box and therefore
+                    # was probably a non-textual item such as a line
+                    s = 0.0
+                sim[i, j] = s
+                sim[j, i] = s
+            print '.',
+        print
+        
+        print "computed (bitstring) similarity matrix in %f seconds" % (time.time()-time_start)
+        
+    elif sim_calc == CALC_NUMPY:
+        print "computing similarity matrix with numpy",
+        time_start = time.time()
+        sim = np.zeros((n,n), dtype=float)
+        for i in range(n):
+            sim[i, i] = 1.0
+            for j in range(i+1, n):
+                try:
+                    s = jaccard_sim(glyphs[i], glyphs[j], verbose=(0,1315)==(i,j))
+                except TypeError:
+                    # a glyph exceeded the bounding box and therefore
+                    # was probably a non-textual item such as a line
+                    s = 0.0
+                sim[i, j] = s
+                sim[j, i] = s
+            print ".",
+        print
+        
+        print "computed (numpy) similarity matrix in %f seconds" % (time.time()-time_start)
+    elif sim_calc == CALC_SCIPY:
+        print "computing similarity matrix with scipy",
+        time_start = time.time()
+        ba_dummy = np.ones(glyphs[0].shape, dtype=np.bool)
+        f_glyphs = np.zeros((n, p), dtype=np.bool)
+        for i in range(n):
+            try:
+                f_glyphs[i,:] = glyphs[i].ravel()
+            except AttributeError:
+                f_glyphs[i,:] = ba_dummy.ravel()
+        print '.',
+        dissimilarity = distance.pdist(f_glyphs, 'jaccard')
+        print '.',
+        sim = 1 - distance.squareform(dissimilarity)
+        print "computed (scipy) similarity matrix in %f seconds" % (time.time()-time_start)
+    elif sim_calc == CALC_FROMFILE:
+        with open(in_sim_file) as f:
+            o = cPickle.load(f)
+            sim = o.sim
+    else:
+        print >>sys.stderr, "sim_calc method undefined."
+        sys.exit(2)
+    return sim
+
+
 
 def verify_square(m):
     if len(m.shape) != 2:
@@ -228,117 +343,7 @@ if False:
 n = len(glyphs)
 p = glyphs[0].size
 
-if sim_calc == CALC_PACKBITS:
-    # optimize by packing the bits with numpy.packbits
-    cast_to_uint8 = np.array([0], dtype=np.uint8)
-    dummy_ba = np.packbits(np.array([True]*p) + cast_to_uint8)
-    b_glyphs = [None]*n
-    print "converting to bitstrings using numpy.packbits",
-    time_start = time.time()
-    for i in range(n):
-        try:
-            ba = np.packbits(glyphs[i] + cast_to_uint8)
-        except TypeError:
-            ba = dummy_ba
-        b_glyphs[i] = ba
-        print '.',
-    print
-    print "converted to bitstrings in %f seconds" % (time.time()-time_start)
-    print "computing similarity matrix with bitcount",
-    time_start = time.time()
-    sim = np.zeros((n,n), dtype=float)
-    for i in range(n):
-        sim[i, i] = 1.0
-        for j in range(i+1, n):
-            try:
-                s = jaccard_sim_numpy_packed(b_glyphs[i], b_glyphs[j], verbose=(0,1315)==(i,j))
-            except TypeError:
-                # a glyph exceeded the bounding box and therefore
-                # was probably a non-textual item such as a line
-                s = 0.0
-            sim[i, j] = s
-            sim[j, i] = s
-        print '.',
-    print
-    
-    print "computed (bitstring) similarity matrix in %f seconds" % (time.time()-time_start)
-    
-elif sim_calc == CALC_BITSTRING:
-    # optimize by packing the bits with bitstring
-    dummy_ba = [True]*p
-    b_glyphs = [None]*n
-    fmt = "%d*bool" % p
-    print "converting to bitstrings",
-    time_start = time.time()
-    for i in range(n):
-        try:
-            ba = glyphs[i].ravel().tolist()
-        except AttributeError:
-            ba = dummy_ba
-        b_glyphs[i] = bitstring.pack(fmt, *ba)
-        print '.',
-    print
-    print "converted to bitstrings in %f seconds" % (time.time()-time_start)
-    print "computing similarity matrix with bitstring",
-    time_start = time.time()
-    sim = np.zeros((n,n), dtype=float)
-    for i in range(n):
-        sim[i, i] = 1.0
-        for j in range(i+1, n):
-            try:
-                s = jaccard_sim_bitstring(b_glyphs[i], b_glyphs[j], verbose=(0,1315)==(i,j))
-            except TypeError:
-                # a glyph exceeded the bounding box and therefore
-                # was probably a non-textual item such as a line
-                s = 0.0
-            sim[i, j] = s
-            sim[j, i] = s
-        print '.',
-    print
-    
-    print "computed (bitstring) similarity matrix in %f seconds" % (time.time()-time_start)
-    
-elif sim_calc == CALC_NUMPY:
-    print "computing similarity matrix with numpy",
-    time_start = time.time()
-    sim = np.zeros((n,n), dtype=float)
-    for i in range(n):
-        sim[i, i] = 1.0
-        for j in range(i+1, n):
-            try:
-                s = jaccard_sim(glyphs[i], glyphs[j], verbose=(0,1315)==(i,j))
-            except TypeError:
-                # a glyph exceeded the bounding box and therefore
-                # was probably a non-textual item such as a line
-                s = 0.0
-            sim[i, j] = s
-            sim[j, i] = s
-        print ".",
-    print
-    
-    print "computed (numpy) similarity matrix in %f seconds" % (time.time()-time_start)
-elif sim_calc == CALC_SCIPY:
-    print "computing similarity matrix with scipy",
-    time_start = time.time()
-    ba_dummy = np.ones(glyphs[0].shape, dtype=np.bool)
-    f_glyphs = np.zeros((n, p), dtype=np.bool)
-    for i in range(n):
-        try:
-            f_glyphs[i,:] = glyphs[i].ravel()
-        except AttributeError:
-            f_glyphs[i,:] = ba_dummy.ravel()
-    print '.',
-    dissimilarity = distance.pdist(f_glyphs, 'jaccard')
-    print '.',
-    sim = 1 - distance.squareform(dissimilarity)
-    print "computed (scipy) similarity matrix in %f seconds" % (time.time()-time_start)
-elif sim_calc == CALC_FROMFILE:
-    with open(in_sim_file) as f:
-        o = cPickle.load(f)
-        sim = o.sim
-else:
-    print >>sys.stderr, "sim_calc method undefined."
-    sys.exit(2)
+sim = calc_similarity_matrix(glyphs, sim_calc, n, p)
 
 print sim
 
