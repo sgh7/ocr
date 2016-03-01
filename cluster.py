@@ -194,10 +194,9 @@ for flag, value in opts:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
 
-if in_sim_file or out_sim_file:
-    if len(in_train_files) > 0 or out_train_file is not None:
-        print >>sys.stderr, "cannot use either of -s/-S with either of -t/-T"
-        sys.exit(4)
+if in_sim_file and len(in_train_files) > 0:
+    print >>sys.stderr, "cannot use -s with -t"
+    sys.exit(4)
 
 glyphs = []
 for fname in files:
