@@ -554,7 +554,7 @@ if w_cluster_file:
 
 
 plt.subplot(122)
-hierarchy.dendrogram(linkage, orientation='left', color_threshold=0.3)
+hierarchy.dendrogram(linkage, orientation='right', color_threshold=0.3)
 plt.xlabel("Event number")
 plt.ylabel("Dissimilarity")
 plt.show()
