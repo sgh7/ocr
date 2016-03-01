@@ -69,12 +69,6 @@ class Contour(object):
         return self.cont[0, 0] == self.cont[-1, 0] and \
                self.cont[0, 1] == self.cont[-1, 1]
 
-def show_glyph(bool_matrix):
-    w, h = bool_matrix.shape
-    for j in range(h):
-        print ''.join(['*' if b_value else ' ' for b_value in bool_matrix[j,::]])
-    
-
 def glyph_copy(mask, labeled_glyphs, label, size_x, size_y, gly_min_x, gly_min_y, w, h):
     """copy glyph from original image.
 

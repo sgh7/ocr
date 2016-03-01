@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+import numpy as np
+
 class Pickled(object):
     pass
 
