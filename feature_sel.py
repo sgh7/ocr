@@ -283,7 +283,7 @@ if outfname:
     o.gly_max_x = gly_max_x
     o.gly_min_y = gly_min_y
     o.gly_max_y = gly_max_y
-    o.glyphs = glyphs[1:]     # ignore backgound
+    o.glyphs = glyphs[1:]     # ignore background
     with open(outfname, "w") as of:
        cPickle.dump(o, of)
 
