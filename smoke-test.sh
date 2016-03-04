@@ -1,5 +1,6 @@
 #!/bin/bash
 
+imgfile=IMG_20150924_205053.jpg
 picklefile=IMG_20150924_205053.pickle
 #trainingfile=p1.train
 #simfile=sim.out
@@ -7,22 +8,29 @@ picklefile=IMG_20150924_205053.pickle
 trainingfile=p1b.train
 simfile=simb.out
 cl_img_file=single03b.png
+verbose=
 
-if [ "$1" = "f" ] || [ "$1" = "cst" ] || [ "$1" = "cinv" ] || [ "$1" = "ci" ] ; then
+if [ "$1" = "-v" ] ; then
+	verbose=-v
+	shift
+fi
+
+if [ "$1" = "f" ] || [ "$1" = "cst" ] || [ "$1" = "cinv" ] || [ "$1" = "ci" ] || [ "$1" = "class" ] ; then
 	tests=$1
+	shift
 else
-	tests="f cst cinv ci"
+	tests="f cst cinv ci class"
 fi
 
 
 # do feature selection
 if echo $tests | grep -q f ; then
-	./feature_sel.py -c B -o $picklefile IMG_20150924_205053.jpg
+	./feature_sel.py $verbose -c B -o $picklefile imgfile
 fi
 
 # output similarity matrix and training data
 if echo $tests | grep -q cst ; then
-	./cluster.py -S $simfile -r 0.3 -T $trainingfile $picklefile
+	./cluster.py $verbose -S $simfile -r 0.3 -T $trainingfile $picklefile
 fi
 
 # invalid flag combo should be caught
@@ -34,5 +42,10 @@ fi
 
 # write out image file showing all glyphs clustered and training glyphs marked
 if echo $tests | grep -q ci ; then
-	./cluster.py -r 0.3 -t $trainingfile -w $cl_img_file $picklefile
+	./cluster.py $verbose -r 0.3 -t $trainingfile -w $cl_img_file $picklefile
+fi
+
+# do final classification
+if echo $tests | grep -q class ; then
+	./classify.py $verbose -f $picklefile -t $trainingfile $imgfile
 fi
