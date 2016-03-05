@@ -79,9 +79,11 @@ the feature_sel.py and cluster.py programs.
 # output text
 
 
-def distance_from_labeled_gylphs(glyph, gcl):
+def similarities_to_labeled_gylphs(glyph, gcl):
     dists = [None]*len(gcl)
+    #show_glyph(glyph)
     for i, g in enumerate(gcl):
+        #show_glyph(g)
         dists[i] = jaccard_sim(glyph, g)
     return dists
 
@@ -95,7 +97,7 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
     glyphs = pin.glyphs     # background ignored
     glyphs = [np.zeros((glyphs[0].shape), dtype=np.bool)] + glyphs  # FIXME: doing this twice...
 
-    img = np.zeros((height, width, 3), dtype=np.uint8)
+    img = np.zeros((width, height, 3), dtype=np.uint8)
 
     print "#clusters %d #glyphs %d" % (len(clusters), len(glyphs))
     for i, cl in enumerate(clusters[1:], 1):
@@ -112,10 +114,11 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
             print "glyph %d in cluster %d" %(i, cl),
             print "at (%d,%d) size (%d,%d)" %(x,y,w,h),
         if cl in labeled_clusters:
+            similarities = similarities_to_labeled_gylphs(gl, gcl[cl])
             if verbose:
-                print "labeled", lcl[cl], "dists", distance_from_labeled_gylphs(gl, gcl[cl])
+                print "labeled", lcl[cl], "dists", similarities
             color = 2
-            intensity = 48
+            intensity = max(similarities)*255
         else:
             if verbose:
                 print "unlabeled"
@@ -123,7 +126,7 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
             intensity = 192
         for ax1 in range(w):
             for ax2 in range(h):
-                img[y+ax2, x+ax1, color] = gl[ax2, ax1]*intensity
+                img[x+ax1, y+ax2, color] = gl[ax1, ax2]*intensity
     return img
 
 
@@ -277,9 +280,9 @@ fig, ax = plt.subplots()
 ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.gnuplot2)
 plt.show()
 
-plt.subplot(122)
-hierarchy.dendrogram(linkage, orientation='left', color_threshold=0.3)
-plt.xlabel("Event number")
-plt.ylabel("Dissimilarity")
-plt.show()
-
+#plt.subplot(122)
+#hierarchy.dendrogram(linkage, orientation='left', color_threshold=0.3)
+#plt.xlabel("Event number")
+#plt.ylabel("Dissimilarity")
+#plt.show()
+#
