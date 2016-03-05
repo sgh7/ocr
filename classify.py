@@ -97,7 +97,8 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
     glyphs = pin.glyphs     # background ignored
     glyphs = [np.zeros((glyphs[0].shape), dtype=np.bool)] + glyphs  # FIXME: doing this twice...
 
-    img = np.zeros((width, height, 3), dtype=np.uint8)
+    #img = np.zeros((width, height, 3), dtype=np.uint8)
+    img = np.zeros((width, height), dtype=np.uint8)
 
     print "#clusters %d #glyphs %d" % (len(clusters), len(glyphs))
     for i, cl in enumerate(clusters[1:], 1):
@@ -117,16 +118,16 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
             similarities = similarities_to_labeled_gylphs(gl, gcl[cl])
             if verbose:
                 print "labeled", lcl[cl], "dists", similarities
-            color = 2
-            intensity = max(similarities)*255
+            intensity = 54+max(similarities)*200
         else:
             if verbose:
                 print "unlabeled"
-            color = 0
-            intensity = 192
+            intensity = 30
         for ax1 in range(w):
             for ax2 in range(h):
-                img[x+ax1, y+ax2, color] = gl[ax1, ax2]*intensity
+                ##img[x+ax1, y+ax2, color] = gl[ax1, ax2]*intensity
+                #img[x+ax1, y+ax2, ...] = gl[ax1, ax2]*intensity
+                img[x+ax1, y+ax2] = gl[ax1, ax2]*intensity
     return img
 
 
@@ -277,7 +278,8 @@ if verbose:
 
 res_img = compose_resolved_img(img.shape[0], img.shape[1], pin, clusters[:new_count], labeled_clusters, lcl, gcl)
 fig, ax = plt.subplots()
-ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.gnuplot2)
+#ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.bwr)
+ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.CMRmap)
 plt.show()
 
 #plt.subplot(122)
