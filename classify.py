@@ -87,6 +87,12 @@ def similarities_to_labeled_gylphs(glyph, gcl):
         dists[i] = jaccard_sim(glyph, g)
     return dists
 
+def get_xywh(i):
+    x = gly_min_x[i]
+    y = gly_min_y[i]
+    w = 1+gly_max_x[i]-x
+    h = 1+gly_max_y[i]-y
+    return x, y, w, h
 
 def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gcl):
 
@@ -107,10 +113,7 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
             if verbose:
                 print "glyph %d omitted" % i
             continue
-        x = gly_min_x[i]
-        y = gly_min_y[i]
-        w = 1+gly_max_x[i]-x
-        h = 1+gly_max_y[i]-y
+        x, y, w, h = get_xywh(i)
         if verbose:
             print "glyph %d in cluster %d" %(i, cl),
             print "at (%d,%d) size (%d,%d)" %(x,y,w,h),
@@ -209,8 +212,7 @@ hist_heights = [0]*(1+glyphs[0].shape[1])
 for i in range(1, len(glyphs)):
     if glyphs[i] is None:
         continue
-    w = 1+gly_max_x[i]-gly_min_x[i]
-    h = 1+gly_max_y[i]-gly_min_y[i]
+    x, y, w, h = get_xywh(i)
     try:
         hist_widths[w] += 1
         hist_heights[h] += 1
@@ -384,10 +386,7 @@ for i in range(new_count):
     if False:
         ga[i] = Glyph(i, 0, y, 0, 0)
         continue
-    x = gly_min_x[i]
-    y = gly_min_y[i]
-    w = 1+gly_max_x[i]-gly_min_x[i]
-    h = 1+gly_max_y[i]-gly_min_y[i]
+    x, y, w, h = get_xywh(i)
     print y,
     ga[i] = Glyph(i, x, y, w, h)
 
