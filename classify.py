@@ -181,6 +181,8 @@ img = io.imread(fname)
 if verbose:
     print img.shape, img.dtype
 
+
+
 with open(in_feature_file) as fd:
     pin = cPickle.load(fd)
     gly_min_x = pin.gly_min_x
@@ -201,6 +203,37 @@ verify("gly_min_x[0] == 0", "invalid state")
 verify("gly_min_y[0] == 0", "invalid state")
 verify("gly_max_x[0]+1 == img.shape[0]", "invalid state")
 verify("gly_max_y[0]+1 == img.shape[1]", "invalid state")
+
+hist_widths = [0]*(1+glyphs[0].shape[0])
+hist_heights = [0]*(1+glyphs[0].shape[1])
+for i in range(1, len(glyphs)):
+    if glyphs[i] is None:
+        continue
+    w = 1+gly_max_x[i]-gly_min_x[i]
+    h = 1+gly_max_y[i]-gly_min_y[i]
+    try:
+        hist_widths[w] += 1
+        hist_heights[h] += 1
+    except IndexError:
+        print "*UGH*", i, w, h
+
+bit_sums_x = np.sum(img, axis=(0,2))
+bit_sums_y = np.sum(img, axis=(1,2))
+rfft_x = np.fft.rfft(bit_sums_x)
+rfft_y = np.fft.rfft(bit_sums_y)
+pow_x = rfft_x**2
+pow_y = rfft_y**2
+fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2)
+ax1.plot(np.arange(1, len(bit_sums_x)), bit_sums_x[1:], 'bo')
+ax2.plot(np.arange(1, len(bit_sums_y)), bit_sums_y[1:], 'ro')
+ax3.plot(np.arange(1, len(pow_x)), np.abs(rfft_x)[1:], 'b-')
+ax4.plot(np.arange(1, len(pow_y)), np.abs(rfft_y)[1:], 'r-')
+#ax3.plot(np.arange(1, len(pow_x)), np.abs(pow_x)[1:], 'b-')
+#ax4.plot(np.arange(1, len(pow_y)), np.abs(pow_y)[1:], 'r-')
+ax6.plot(np.arange(len(hist_widths)), hist_widths, 'r*')
+ax5.plot(np.arange(len(hist_heights)), hist_heights, 'b*')
+plt.show()
+
 
 # restore "dummy" glyph as placeholder for entire image
 #glyphs = np.vstack([np.zeros((glyphs[0].shape), dtype=np.bool), glyphs])
@@ -238,8 +271,8 @@ print sim
 verify_square(sim)
 
 
-plt.subplot(121)
-plt.imshow(sim, interpolation="nearest")
+#plt.subplot(121)
+#plt.imshow(sim, interpolation="nearest")
 
 dissimilarity = distance.squareform(1-sim)
 linkage = hierarchy.linkage(dissimilarity, method=cl_method)
@@ -281,6 +314,89 @@ fig, ax = plt.subplots()
 #ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.bwr)
 ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.CMRmap)
 plt.show()
+
+#plt.title("Sums of pixel values")
+bit_sums_x = np.sum(res_img, axis=0)
+bit_sums_y = np.sum(res_img, axis=1)
+fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
+ax1.plot(np.arange(len(bit_sums_x)), bit_sums_x, 'bo')
+ax2.plot(np.arange(len(bit_sums_y)), bit_sums_y, 'ro')
+plt.show()
+
+# read-out
+
+class Glyph(object):
+    def __init__(self, id, x, y, w, h):
+        self.id = id
+        self.x = x
+        self.ymin = y
+        self.w = w
+        self.h = h
+        self.ymax = y+h-1
+        self.shadows = set()
+        self.shadowedby = set()
+        self.label = None
+        self.outputted = False
+
+    __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "shadows", "shadowedby", "label", "outputted")
+
+    def compare(self, g2):
+        if self.ymin > g2.ymax or self.ymax < g2.ymin:
+            pass  # no contact
+        elif self.x < g2.x:
+            self.shadows |= set([g2.id])
+            g2.shadowedby |= set([self.id])
+        else:
+            self.shadowedby |= set([g2.id])
+            g2.shadows |= set([self.id])
+        
+sys.setrecursionlimit(30)
+
+def find_ga_index(ga, y_ofs, start_index, end_index):
+    print "fgi: %d %d %d" % (y_ofs, start_index, end_index)
+    if ga[end_index].ymin <= y_ofs:
+        return end_index
+    elif ga[start_index].ymin >= y_ofs:
+        return start_index
+    elif start_index == end_index:
+        return start_index
+    else:
+        middle = (start_index+end_index)/2
+        if middle == start_index:
+            return start_index
+        if ga[middle].ymin > y_ofs:
+            return find_ga_index(ga, y_ofs, start_index, middle-1)
+        else:
+            return find_ga_index(ga, y_ofs, middle, end_index)
+
+def find_in_row(ga, y_ofs, max_delta_y):
+    # depend upon the glyph-array being sorted by y-coordinate
+    # of upper-left corner
+    ix1 = find_ga_index(ga, y_ofs, 0, new_count-1)
+    ix2 = find_ga_index(ga, y_ofs+max_delta_y, 0, new_count-1)
+    print "found %d+%d in %d..%d" % (y_ofs, max_delta_y, ix1, ix2)
+    
+
+ga = [None]*new_count
+for i in range(new_count):
+    y = 0
+    #if glyphs[i] is None:
+    if False:
+        ga[i] = Glyph(i, 0, y, 0, 0)
+        continue
+    x = gly_min_x[i]
+    y = gly_min_y[i]
+    w = 1+gly_max_x[i]-gly_min_x[i]
+    h = 1+gly_max_y[i]-gly_min_y[i]
+    print y,
+    ga[i] = Glyph(i, x, y, w, h)
+
+print
+
+y_ofs = 0
+find_in_row(ga, y_ofs, glyphs[0].shape[0])
+
+
 
 #plt.subplot(122)
 #hierarchy.dendrogram(linkage, orientation='left', color_threshold=0.3)
