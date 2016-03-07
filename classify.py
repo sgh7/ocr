@@ -95,9 +95,9 @@ def get_xywh(i):
     return x, y, w, h
 
 def get_gly_pos_dims(pin):
-    #return pin.gly_min_x, pin.gly_max_x, pin.gly_min_y, pin.gly_max_y, pin.glyphs
-    print "get_gly_pos_dims switcheroo!!"
-    return pin.gly_min_y, pin.gly_max_y, pin.gly_min_x, pin.gly_max_x, pin.glyphs
+    return pin.gly_min_x, pin.gly_max_x, pin.gly_min_y, pin.gly_max_y, pin.glyphs
+    #print "get_gly_pos_dims switcheroo!!"
+    #return pin.gly_min_y, pin.gly_max_y, pin.gly_min_x, pin.gly_max_x, pin.glyphs
 
 def compose_resolved_img(height, width, pin, clusters, labeled_clusters, lcl, gcl):
 

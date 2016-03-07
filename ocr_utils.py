@@ -11,7 +11,7 @@ class Pickled(object):
 
 def show_glyph(bool_matrix):
     w, h = bool_matrix.shape
-    print w, h, np.bincount(bool_matrix.ravel())
+    print w, h, np.bincount(bool_matrix.ravel()) # bincount -> [#False, #True]
     for j in range(h):
         print ''.join(['*' if b_value else ' ' for b_value in bool_matrix[j,::]])
 
