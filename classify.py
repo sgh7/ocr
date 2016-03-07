@@ -225,12 +225,18 @@ rfft_y = np.fft.rfft(bit_sums_y)
 pow_x = rfft_x**2
 pow_y = rfft_y**2
 fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2)
-ax2.plot(np.arange(1, len(bit_sums_x)), bit_sums_x[1:], 'bo')
+ax1.set_title("Vertical image sums")
 ax1.plot(np.arange(1, len(bit_sums_y)), bit_sums_y[1:], 'ro')
-ax4.plot(np.arange(1, len(pow_x)), np.abs(rfft_x)[1:], 'b-')
+ax2.set_title("Horizontal image sums")
+ax2.plot(np.arange(1, len(bit_sums_x)), bit_sums_x[1:], 'bo')
+ax3.set_title("rFFT of vertical sums")
 ax3.plot(np.arange(1, len(pow_y)), np.abs(rfft_y)[1:], 'r-')
-ax6.plot(np.arange(len(hist_widths)), hist_widths, 'b*')
+ax4.set_title("rFFT of horizontal sums")
+ax4.plot(np.arange(1, len(pow_x)), np.abs(rfft_x)[1:], 'b-')
+ax5.set_title("Glyph height histogram")
 ax5.plot(np.arange(len(hist_heights)), hist_heights, 'r*')
+ax6.set_title("Glyph width histogram")
+ax6.plot(np.arange(len(hist_widths)), hist_widths, 'b*')
 plt.show()
 
 
@@ -310,6 +316,7 @@ if verbose:
 
 res_img = compose_resolved_img(img.shape[0], img.shape[1], pin, clusters[:new_count], labeled_clusters, lcl, gcl)
 fig, ax = plt.subplots()
+ax.set_title("Resolved image")
 #ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.bwr)
 ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.CMRmap)
 plt.show()
@@ -318,7 +325,9 @@ plt.show()
 bit_sums_x = np.sum(res_img, axis=0)
 bit_sums_y = np.sum(res_img, axis=1)
 fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
+ax1.set_title("Resolved image vertical sums")
 ax1.plot(np.arange(len(bit_sums_x)), bit_sums_x, 'bo')
+ax2.set_title("Resolved image horizontal sums")
 ax2.plot(np.arange(len(bit_sums_y)), bit_sums_y, 'ro')
 plt.show()
 
@@ -339,6 +348,9 @@ class Glyph(object):
 
     __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "shadows", "shadowedby", "label", "outputted")
 
+    def set_label(self, label):
+        self.label = label
+
     def compare(self, g2):
         if self.ymin > g2.ymax or self.ymax < g2.ymin:
             pass  # no contact
@@ -348,6 +360,12 @@ class Glyph(object):
         else:
             self.shadowedby |= set([g2.id])
             g2.shadows |= set([self.id])
+
+    def __str__(self):
+        return "%d %s y=%d x=%d h=%d w=%d %s %s %s" % \
+               (self.id, '*' if self.outputted else ' ', \
+                self.ymin, self.x, self.h, self.w, \
+                list(self.shadowedby), self.label, list(self.shadows))
         
 sys.setrecursionlimit(30)
 
@@ -374,6 +392,11 @@ def find_in_row(ga, y_ofs, max_delta_y):
     ix1 = find_ga_index(ga, y_ofs, 0, new_count-1)
     ix2 = find_ga_index(ga, y_ofs+max_delta_y, 0, new_count-1)
     print "found %d+%d in %d..%d" % (y_ofs, max_delta_y, ix1, ix2)
+    found = []
+    for ix in range(ix1, ix2+1):
+        if not ga[ix].outputted:
+            found.append(ga[ix])
+    return found
     
 
 ga = [None]*new_count
@@ -386,17 +409,57 @@ for i in range(new_count):
     x, y, w, h = get_xywh(i)
     print y,
     ga[i] = Glyph(i, x, y, w, h)
+    try:
+        ga[i].set_label(lcl[clusters[i]])
+    except KeyError:
+        ga[i].set_label("I%d" % i)
 
 print
 
+class TextCollection(object):
+    def __init__(self):
+        self.c = []
+
+    def collect(self, gl):
+        if gl.outputted:
+            print "attempt to re-collect output gl->char mapping"
+            return
+        self.c.append(gl)
+        gl.outputted = True
+
+    def dump(self):
+        print "text-collection:"
+        for g in self.c:
+            print g
+
+
+tc = TextCollection()
+
 y_ofs = 0
-find_in_row(ga, y_ofs, glyphs[0].shape[0])
+y_max_height = glyphs[0].shape[0]
+# find leftmost glyphs in a band
+print "finding overlapping glyphs in %d image bit rows" % img.shape[0]
+while y_ofs < img.shape[0]+y_max_height:
+    found = find_in_row(ga, y_ofs, y_max_height)
+    for i, g1 in enumerate(found):
+        for j, g2 in enumerate(found[i+1:], i+1):
+            g1.compare(g2)
+    y_ofs += y_max_height/2
+
+for g in ga:
+    print g
+
+leftmost = [g for g in ga[1:] if len(g.shadowedby) == 0]
+print "leftmost"
+for g in leftmost:
+    print g
+for left in leftmost:
+    tc.collect(left)
+    shadowed = sorted(left.shadowedby, key=lambda gl: gl.x)  
+    for gl in shadowed:
+        if not gl.outputted:
+            tc.collect(gl)
+            # recursively follow gl.shadowedby...
 
 
-
-#plt.subplot(122)
-#hierarchy.dendrogram(linkage, orientation='left', color_threshold=0.3)
-#plt.xlabel("Event number")
-#plt.ylabel("Dissimilarity")
-#plt.show()
-#
+tc.dump()
