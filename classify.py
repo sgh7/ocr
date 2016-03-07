@@ -94,17 +94,18 @@ def get_xywh(i):
     h = 1+gly_max_y[i]-y
     return x, y, w, h
 
-def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gcl):
+def get_gly_pos_dims(pin):
+    return pin.gly_min_x, pin.gly_max_x, pin.gly_min_y, pin.gly_max_y, pin.glyphs
+    #print "get_gly_pos_dims switcheroo!!"
+    #return pin.gly_min_y, pin.gly_max_y, pin.gly_min_x, pin.gly_max_x, pin.glyphs
 
-    gly_min_x = pin.gly_min_x
-    gly_max_x = pin.gly_max_x
-    gly_min_y = pin.gly_min_y
-    gly_max_y = pin.gly_max_y
-    glyphs = pin.glyphs     # background ignored
+def compose_resolved_img(height, width, pin, clusters, labeled_clusters, lcl, gcl):
+
+    gly_min_x, gly_max_x, gly_min_y, gly_max_y, glyphs = get_gly_pos_dims(pin)
+    # background of glyphs ignored
     glyphs = [np.zeros((glyphs[0].shape), dtype=np.bool)] + glyphs  # FIXME: doing this twice...
 
-    #img = np.zeros((width, height, 3), dtype=np.uint8)
-    img = np.zeros((width, height), dtype=np.uint8)
+    img = np.zeros((height, width), dtype=np.uint8)
 
     print "#clusters %d #glyphs %d" % (len(clusters), len(glyphs))
     for i, cl in enumerate(clusters[1:], 1):
@@ -116,7 +117,7 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
         x, y, w, h = get_xywh(i)
         if verbose:
             print "glyph %d in cluster %d" %(i, cl),
-            print "at (%d,%d) size (%d,%d)" %(x,y,w,h),
+            print "at (%d,%d) size (%d,%d)" %(y,x,h,w),
         if cl in labeled_clusters:
             similarities = similarities_to_labeled_gylphs(gl, gcl[cl])
             if verbose:
@@ -126,11 +127,12 @@ def compose_resolved_img(width, height, pin, clusters, labeled_clusters, lcl, gc
             if verbose:
                 print "unlabeled"
             intensity = 30
-        for ax1 in range(w):
-            for ax2 in range(h):
-                ##img[x+ax1, y+ax2, color] = gl[ax1, ax2]*intensity
-                #img[x+ax1, y+ax2, ...] = gl[ax1, ax2]*intensity
-                img[x+ax1, y+ax2] = gl[ax1, ax2]*intensity
+        for ax1 in range(h):
+            for ax2 in range(w):
+                try:
+                    img[y+ax1, x+ax2] = gl[ax1, ax2]*intensity
+                except IndexError:
+                    print "*ouch*"
     return img
 
 
@@ -188,11 +190,8 @@ if verbose:
 
 with open(in_feature_file) as fd:
     pin = cPickle.load(fd)
-    gly_min_x = pin.gly_min_x
-    gly_max_x = pin.gly_max_x
-    gly_min_y = pin.gly_min_y
-    gly_max_y = pin.gly_max_y
-    glyphs = pin.glyphs     # background ignored
+    gly_min_x, gly_max_x, gly_min_y, gly_max_y, glyphs = get_gly_pos_dims(pin)
+    # background of glyphs ignored
 
 if verbose:
     print glyphs[:2]
@@ -204,8 +203,8 @@ if verbose:
 
 verify("gly_min_x[0] == 0", "invalid state")
 verify("gly_min_y[0] == 0", "invalid state")
-verify("gly_max_x[0]+1 == img.shape[0]", "invalid state")
-verify("gly_max_y[0]+1 == img.shape[1]", "invalid state")
+verify("gly_max_x[0]+1 == img.shape[1]", "invalid state")
+verify("gly_max_y[0]+1 == img.shape[0]", "invalid state")
 
 hist_widths = [0]*(1+glyphs[0].shape[0])
 hist_heights = [0]*(1+glyphs[0].shape[1])
@@ -226,14 +225,12 @@ rfft_y = np.fft.rfft(bit_sums_y)
 pow_x = rfft_x**2
 pow_y = rfft_y**2
 fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2)
-ax1.plot(np.arange(1, len(bit_sums_x)), bit_sums_x[1:], 'bo')
-ax2.plot(np.arange(1, len(bit_sums_y)), bit_sums_y[1:], 'ro')
-ax3.plot(np.arange(1, len(pow_x)), np.abs(rfft_x)[1:], 'b-')
-ax4.plot(np.arange(1, len(pow_y)), np.abs(rfft_y)[1:], 'r-')
-#ax3.plot(np.arange(1, len(pow_x)), np.abs(pow_x)[1:], 'b-')
-#ax4.plot(np.arange(1, len(pow_y)), np.abs(pow_y)[1:], 'r-')
-ax6.plot(np.arange(len(hist_widths)), hist_widths, 'r*')
-ax5.plot(np.arange(len(hist_heights)), hist_heights, 'b*')
+ax2.plot(np.arange(1, len(bit_sums_x)), bit_sums_x[1:], 'bo')
+ax1.plot(np.arange(1, len(bit_sums_y)), bit_sums_y[1:], 'ro')
+ax4.plot(np.arange(1, len(pow_x)), np.abs(rfft_x)[1:], 'b-')
+ax3.plot(np.arange(1, len(pow_y)), np.abs(rfft_y)[1:], 'r-')
+ax6.plot(np.arange(len(hist_widths)), hist_widths, 'b*')
+ax5.plot(np.arange(len(hist_heights)), hist_heights, 'r*')
 plt.show()
 
 
