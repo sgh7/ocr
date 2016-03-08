@@ -106,6 +106,7 @@ def compose_resolved_img(height, width, pin, clusters, labeled_clusters, lcl, gc
     glyphs = [np.zeros((glyphs[0].shape), dtype=np.bool)] + glyphs  # FIXME: doing this twice...
 
     img = np.zeros((height, width), dtype=np.uint8)
+    rimg = np.zeros((height, width), dtype=np.uint16)
 
     print "#clusters %d #glyphs %d" % (len(clusters), len(glyphs))
     for i, cl in enumerate(clusters[1:], 1):
@@ -131,10 +132,21 @@ def compose_resolved_img(height, width, pin, clusters, labeled_clusters, lcl, gc
             for ax2 in range(w):
                 try:
                     img[y+ax1, x+ax2] = gl[ax1, ax2]*intensity
+                    if gl[ax1, ax2]:
+                        rimg[y+ax1, x+ax2] = i
                 except IndexError:
                     print "*ouch*"
-    return img
+    return img, rimg
 
+
+def show_similarity(intensity):
+    if intensity > 30:
+        similarity = "%1.3f" % ((intensity-54.0)/200.0)
+    elif intensity == 30:
+        similarity = "N/C"
+    else:
+        similarity = "0"
+    return similarity
 
 
 
@@ -218,21 +230,45 @@ for i in range(1, len(glyphs)):
     except IndexError:
         print "*UGH*", i, w, h
 
+max_hist_height = max(hist_heights)
+max_hist_width = max(hist_widths)
+most_common_height = hist_heights.index(max_hist_height)
+most_common_width = hist_widths.index(max_hist_width)
+
+print "most common height is %d, %d times" % (most_common_height, max_hist_height)
+print "most common width is %d, %d times" % (most_common_width, max_hist_width)
+
+def peak_value(arr, ofs=0):
+    max_seen = min(arr)
+    ms_ofs = ofs
+    for i, val in enumerate(arr[ofs:], ofs):
+        if val > max_seen:
+            ms_ofs, max_seen = i, val
+    return ms_ofs, max_seen
+
 bit_sums_x = np.sum(img, axis=(0,2))
 bit_sums_y = np.sum(img, axis=(1,2))
 rfft_x = np.fft.rfft(bit_sums_x)
 rfft_y = np.fft.rfft(bit_sums_y)
+a_rfft_x = np.abs(rfft_x)
+a_rfft_y = np.abs(rfft_y)
+hspace_hat = peak_value(a_rfft_x, most_common_width)[0]
+vspace_hat = peak_value(a_rfft_y, most_common_height)[0]
+#print "rfft_x: len=%d, abs=%s" % (len(rfft_x), a_rfft_x)
+print "max(a_rfft_x[%d:]) at position %d" % (most_common_width, hspace_hat)
+#print "rfft_y: len=%d, abs=%s" % (len(rfft_y), a_rfft_y)
+print "max(a_rfft_y[%d:]) at position %d" % (most_common_height, vspace_hat)
 pow_x = rfft_x**2
 pow_y = rfft_y**2
 fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2)
-ax1.set_title("Vertical image sums")
+ax1.set_title("Horizontal image sums")
 ax1.plot(np.arange(1, len(bit_sums_y)), bit_sums_y[1:], 'ro')
-ax2.set_title("Horizontal image sums")
+ax2.set_title("Vertical image sums")
 ax2.plot(np.arange(1, len(bit_sums_x)), bit_sums_x[1:], 'bo')
-ax3.set_title("rFFT of vertical sums")
-ax3.plot(np.arange(1, len(pow_y)), np.abs(rfft_y)[1:], 'r-')
-ax4.set_title("rFFT of horizontal sums")
-ax4.plot(np.arange(1, len(pow_x)), np.abs(rfft_x)[1:], 'b-')
+ax3.set_title("rFFT of horizontal sums")
+ax3.plot(np.arange(1, len(rfft_y)), np.abs(rfft_y)[1:], 'r-')
+ax4.set_title("rFFT of vertical sums")
+ax4.plot(np.arange(1, len(rfft_x)), np.abs(rfft_x)[1:], 'b-')
 ax5.set_title("Glyph height histogram")
 ax5.plot(np.arange(len(hist_heights)), hist_heights, 'r*')
 ax6.set_title("Glyph width histogram")
@@ -314,11 +350,34 @@ for i, cl in enumerate(clusters[new_count:], new_count):
 if verbose:
     raw_input("Press enter to continue.")
 
-res_img = compose_resolved_img(img.shape[0], img.shape[1], pin, clusters[:new_count], labeled_clusters, lcl, gcl)
+def closure(res_img, r_img, clusters, lcl):
+    def format_coord(x, y):
+        xi, yi = int(x), int(y)
+        try:
+            intensity = res_img[yi, xi]
+            similarity = show_similarity(intensity)
+            id = r_img[yi, xi]
+            try:
+                if id > 0:
+                    label = lcl[clusters[id]]
+                else:
+                    label = ""
+            except KeyError:
+                label = "untrained:%d" % id
+            s = "similarity=%s   id=%d   %s" % (similarity, id, label)
+        except IndexError:
+            s = ""
+        return "x=%1.1f    y=%1.1f %s" % (x, y, s)
+    return format_coord
+
+res_img, r_img = compose_resolved_img(img.shape[0], img.shape[1], pin, clusters[:new_count], labeled_clusters, lcl, gcl)
+format_coord = closure(res_img, r_img, clusters, lcl)
+##print "labels[488] is %s, '9' expected." % lcl[clusters[488]]
 fig, ax = plt.subplots()
 ax.set_title("Resolved image")
 #ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.bwr)
 ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.CMRmap)
+ax.format_coord = format_coord
 plt.show()
 
 #plt.title("Sums of pixel values")
@@ -340,13 +399,15 @@ class Glyph(object):
         self.ymin = y
         self.w = w
         self.h = h
+        self.size = w*h
         self.ymax = y+h-1
         self.shadows = set()
         self.shadowedby = set()
         self.label = None
         self.outputted = False
+        self.next = []
 
-    __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "shadows", "shadowedby", "label", "outputted")
+    __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "size", "shadows", "shadowedby", "label", "outputted", "next")
 
     def set_label(self, label):
         self.label = label
@@ -361,13 +422,34 @@ class Glyph(object):
             self.shadowedby |= set([g2.id])
             g2.shadows |= set([self.id])
 
-    def __str__(self):
-        return "%d %s y=%d x=%d h=%d w=%d %s %s %s" % \
+    def set_next(self, width):
+        """Determine list of nearest glyphs shadowed by this one.
+
+        The closest shadowed glyph and any other shadowed glyphs
+        no more than  width  pixels farther away are determined.
+
+        set_next() should be called only once and after all calls
+        to compare() have been done.
+        """
+
+        shadowed = sorted(self.shadows, key=lambda id: ga[id].x)  
+        if len(shadowed) > 1:
+            x = ga[shadowed[0]].x
+            shadowed = [id for id in shadowed if ga[id].x < x+width]
+        self.next = shadowed
+
+    def __repr__(self):
+        return "%d %s y=%d x=%d h=%d w=%d %s %s %s s=%s" % \
                (self.id, '*' if self.outputted else ' ', \
                 self.ymin, self.x, self.h, self.w, \
-                list(self.shadowedby), self.label, list(self.shadows))
+                list(self.shadowedby), self.label, \
+                list(self.shadows), list(self.next))
+
+    def __str__(self):
+        return "%d y=%d x=%d h=%d w=%d %s" % \
+               (self.id, self.ymin, self.x, self.h, self.w, self.label)
         
-sys.setrecursionlimit(30)
+sys.setrecursionlimit(600)
 
 def find_ga_index(ga, y_ofs, start_index, end_index):
     print "fgi: %d %d %d" % (y_ofs, start_index, end_index)
@@ -417,49 +499,94 @@ for i in range(new_count):
 print
 
 class TextCollection(object):
-    def __init__(self):
-        self.c = []
+    def __init__(self, max_count):
+        self.c = [None]*max_count
+        self.used_count = 0
 
     def collect(self, gl):
         if gl.outputted:
             print "attempt to re-collect output gl->char mapping"
             return
-        self.c.append(gl)
+        self.c[self.used_count] = gl
+        self.used_count += 1
         gl.outputted = True
+
+    def r_collect(self, gl):
+        self.collect(gl)
+        if len(gl.next) > 1:
+            # detect possible ordering problems
+            print "r_collect", gl.id, "shadows", [id for id in gl.next if not ga[id].outputted]
+        for id in gl.next:
+            if not ga[id].outputted:
+                self.r_collect(ga[id])
+         
+    def dump_all(self):
+        print "text-collection:"
+        for g in self.c[:self.used_count]:
+            print repr(g)
 
     def dump(self):
         print "text-collection:"
-        for g in self.c:
+        for g in self.c[:self.used_count]:
             print g
 
+    def show(self):
+        print "text-collection:"
+        puts = sys.stdout.write
+        last_x = last_hpos = 0
+        for g in self.c[:self.used_count]:
+            if g.x < last_x:
+                puts('\n')
+                last_x = last_hpos = 0
+            hpos = g.x / hspace_hat
+            n_spaces = hpos-last_hpos-1
+            if n_spaces > 0:
+                puts(' '*n_spaces)
+            puts(g.label)
+            last_x = g.x
+            last_hpos = hpos
+        puts('\n')
 
-tc = TextCollection()
 
+
+n_bands = 0
 y_ofs = 0
+n_comparisons = 0
 y_max_height = glyphs[0].shape[0]
-# find leftmost glyphs in a band
+# find leftmost glyphs in a band, banding to reduce complexity
 print "finding overlapping glyphs in %d image bit rows" % img.shape[0]
 while y_ofs < img.shape[0]+y_max_height:
     found = find_in_row(ga, y_ofs, y_max_height)
     for i, g1 in enumerate(found):
         for j, g2 in enumerate(found[i+1:], i+1):
             g1.compare(g2)
+            n_comparisons += 1
     y_ofs += y_max_height/2
+    n_bands += 1
+
+print "%d bands %d comparisons" % (n_bands, n_comparisons)
 
 for g in ga:
+    g.set_next(hspace_hat)
     print g
 
 leftmost = [g for g in ga[1:] if len(g.shadowedby) == 0]
-print "leftmost"
+print "%d leftmost glyphs" % len(leftmost)
 for g in leftmost:
     print g
+
+
+
+tc = TextCollection(new_count)
 for left in leftmost:
-    tc.collect(left)
-    shadowed = sorted(left.shadowedby, key=lambda gl: gl.x)  
-    for gl in shadowed:
-        if not gl.outputted:
-            tc.collect(gl)
-            # recursively follow gl.shadowedby...
+    tc.r_collect(left)
+#
+#    shadowed = sorted(left.shadows, key=lambda id: ga[id].x)  
+#    print "left", left, "shadowed", shadowed
+#    for id in shadowed:
+#        if not ga[id].outputted:
+#            tc.collect(ga[id])
+#            # recursively follow gl.shadowedby...
 
 
-tc.dump()
+tc.show()
