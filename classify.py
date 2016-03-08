@@ -37,6 +37,7 @@ options:
 
 -h         this help
 -v         be verbose
+-l <str>   use <str> if no interpretation exists for a character glyph
 -f <feature file>  input file containing features (-o option to feature_sel.py)
 -t <input-training data file>
 
@@ -152,6 +153,7 @@ sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 
 progname = sys.argv[0]
 verbose = False
+invalid_label_str = None
 in_train_files = []
 in_feature_file = None
 cl_method = "single"
@@ -161,7 +163,7 @@ sim_calc = CALC_PACKBITS
 #sim_calc = CALC_SCIPY
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvt:T:m:r:w:f:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvt:T:m:r:w:f:l:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -172,6 +174,8 @@ for flag, value in opts:
         sys.exit(1)
     elif flag == '-v':
         verbose = True
+    elif flag == '-l':
+        invalid_label_str = value
     elif flag == '-t':
         in_train_files.append(value)
     elif flag == '-T':
@@ -511,7 +515,10 @@ for i in range(new_count):
     try:
         ga[i].set_label(lcl[clusters[i]])
     except KeyError:
-        ga[i].set_label("I%d" % i)
+        if invalid_label_str is not None:
+            ga[i].set_label(invalid_label_str)
+        else:
+            ga[i].set_label("I%d" % i)
     ga[i].set_bits_set(gly_bits_set[i])
 
 print
