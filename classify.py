@@ -218,7 +218,7 @@ plt.xlabel("Value")
 plt.ylabel("Normed frequency")
 plt.show()
 
-runt_bits_set = 15   # any glyph with few bits set to be considered a runt
+runt_bits_set = 14   # any glyph with few bits set to be considered a runt
 #FIXME: find bitmap with smallest bitcount in training set and use some
 #       fraction of that
 
@@ -418,8 +418,9 @@ class Glyph(object):
         self.label = None
         self.outputted = False
         self.next = []
+        self.findcount = 0
 
-    __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "size", "bits_set", "shadows", "shadowedby", "label", "outputted", "next")
+    #__slots__ = ("id", "x", "ymin", "ymax", "w", "h", "size", "bits_set", "shadows", "shadowedby", "label", "outputted", "next")
 
     def set_label(self, label):
         self.label = label
@@ -468,7 +469,7 @@ class Glyph(object):
 sys.setrecursionlimit(600)
 
 def find_ga_index(ga, y_ofs, start_index, end_index):
-    print "fgi: %d %d %d" % (y_ofs, start_index, end_index)
+    #print "fgi: %d %d %d" % (y_ofs, start_index, end_index)
     if ga[end_index].ymin <= y_ofs:
         return end_index
     elif ga[start_index].ymin >= y_ofs:
@@ -489,11 +490,11 @@ def find_in_row(ga, y_ofs, max_delta_y):
     # of upper-left corner
     ix1 = find_ga_index(ga, y_ofs, 0, new_count-1)
     ix2 = find_ga_index(ga, y_ofs+max_delta_y, 0, new_count-1)
-    print "found %d+%d in %d..%d" % (y_ofs, max_delta_y, ix1, ix2)
+    print "found ymin %d..%d in glyphs %d..%d" % (y_ofs, y_ofs+max_delta_y, ix1, ix2)
     found = []
     for ix in range(ix1, ix2+1):
-        if not ga[ix].outputted:
-            found.append(ga[ix])
+        ga[ix].findcount += 1
+        found.append(ga[ix])
     return found
     
 
@@ -560,8 +561,8 @@ class TextCollection(object):
             if n_spaces > 0:
                 puts(' '*n_spaces)
             puts(g.label)
-            last_x = g.x +g.w
-            last_hpos = last_x / hspace_hat
+            last_x = g.x
+            last_hpos = (g.x +g.w) / hspace_hat
         puts('\n')
 
 
@@ -573,23 +574,26 @@ y_max_height = glyphs[0].shape[0]
 # find leftmost glyphs in a band, banding to reduce complexity
 print "finding overlapping glyphs in %d image bit rows" % img.shape[0]
 while y_ofs < img.shape[0]+y_max_height:
-    found = find_in_row(ga, y_ofs, y_max_height)
+    found = find_in_row(ga, y_ofs, 1+(3*y_max_height/2))
+    #print found
     for i, g1 in enumerate(found):
-        if ga[i].bits_set < runt_bits_set:
+        if g1.bits_set < runt_bits_set:
             continue
         for j, g2 in enumerate(found[i+1:], i+1):
-            if ga[j].bits_set < runt_bits_set:
+            if g2.bits_set < runt_bits_set:
                 continue
             g1.compare(g2)
+            #print "(%d:%d)" % (g1.id, g2.id),
             n_comparisons += 1
     y_ofs += y_max_height/2
     n_bands += 1
+    #print
 
 print "%d bands %d comparisons" % (n_bands, n_comparisons)
 
 for g in ga:
     g.set_next(hspace_hat)
-    print g
+    print g, g.findcount
 
 leftmost = [g for g in ga[1:] if len(g.shadowedby) == 0 and g.bits_set >= runt_bits_set]
 print "%d leftmost glyphs" % len(leftmost)
