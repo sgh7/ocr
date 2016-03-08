@@ -543,8 +543,8 @@ class TextCollection(object):
             if n_spaces > 0:
                 puts(' '*n_spaces)
             puts(g.label)
-            last_x = g.x
-            last_hpos = hpos
+            last_x = g.x +g.w
+            last_hpos = last_x / hspace_hat
         puts('\n')
 
 
