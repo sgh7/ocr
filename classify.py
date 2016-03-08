@@ -102,8 +102,6 @@ def get_gly_pos_dims(pin):
 def compose_resolved_img(height, width, pin, clusters, labeled_clusters, lcl, gcl):
 
     gly_min_x, gly_max_x, gly_min_y, gly_max_y, glyphs = get_gly_pos_dims(pin)
-    # background of glyphs ignored
-    glyphs = [np.zeros((glyphs[0].shape), dtype=np.bool)] + glyphs  # FIXME: doing this twice...
 
     img = np.zeros((height, width), dtype=np.uint8)
     rimg = np.zeros((height, width), dtype=np.uint16)
@@ -202,8 +200,28 @@ if verbose:
 
 with open(in_feature_file) as fd:
     pin = cPickle.load(fd)
+    # restore "dummy" glyph as placeholder for entire image
+    pin.glyphs = [np.zeros((pin.glyphs[0].shape), dtype=np.bool)] + pin.glyphs
     gly_min_x, gly_max_x, gly_min_y, gly_max_y, glyphs = get_gly_pos_dims(pin)
-    # background of glyphs ignored
+
+gly_bits_set = [0]*len(glyphs)
+for i, g in enumerate(glyphs[1:], 1):
+    try:
+        gly_bits_set[i] = np.bincount(g.ravel())[1]
+    except AttributeError:
+        pass
+#print gly_bits_set
+
+plt.hist(np.array(gly_bits_set), bins=100, normed=True, cumulative=False)
+plt.title("bitmap bitcounts")
+plt.xlabel("Value")
+plt.ylabel("Normed frequency")
+plt.show()
+
+runt_bits_set = 15   # any glyph with few bits set to be considered a runt
+#FIXME: find bitmap with smallest bitcount in training set and use some
+#       fraction of that
+
 
 if verbose:
     print glyphs[:2]
@@ -275,12 +293,6 @@ ax6.set_title("Glyph width histogram")
 ax6.plot(np.arange(len(hist_widths)), hist_widths, 'b*')
 plt.show()
 
-
-# restore "dummy" glyph as placeholder for entire image
-#glyphs = np.vstack([np.zeros((glyphs[0].shape), dtype=np.bool), glyphs])
-print len(glyphs)
-glyphs = [np.zeros((glyphs[0].shape), dtype=np.bool)] + glyphs
-print len(glyphs)
 
 new_count = len(glyphs)
 labels = [None]*new_count
@@ -372,7 +384,6 @@ def closure(res_img, r_img, clusters, lcl):
 
 res_img, r_img = compose_resolved_img(img.shape[0], img.shape[1], pin, clusters[:new_count], labeled_clusters, lcl, gcl)
 format_coord = closure(res_img, r_img, clusters, lcl)
-##print "labels[488] is %s, '9' expected." % lcl[clusters[488]]
 fig, ax = plt.subplots()
 ax.set_title("Resolved image")
 #ax.imshow(res_img, interpolation='nearest', cmap=plt.cm.bwr)
@@ -400,6 +411,7 @@ class Glyph(object):
         self.w = w
         self.h = h
         self.size = w*h
+        self.bits_set = 0
         self.ymax = y+h-1
         self.shadows = set()
         self.shadowedby = set()
@@ -407,10 +419,13 @@ class Glyph(object):
         self.outputted = False
         self.next = []
 
-    __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "size", "shadows", "shadowedby", "label", "outputted", "next")
+    __slots__ = ("id", "x", "ymin", "ymax", "w", "h", "size", "bits_set", "shadows", "shadowedby", "label", "outputted", "next")
 
     def set_label(self, label):
         self.label = label
+
+    def set_bits_set(self, count):
+        self.bits_set = count
 
     def compare(self, g2):
         if self.ymin > g2.ymax or self.ymax < g2.ymin:
@@ -439,15 +454,16 @@ class Glyph(object):
         self.next = shadowed
 
     def __repr__(self):
-        return "%d %s y=%d x=%d h=%d w=%d %s %s %s s=%s" % \
+        return "%d %s y=%d x=%d h=%d w=%d b=%d %s %s %s s=%s" % \
                (self.id, '*' if self.outputted else ' ', \
-                self.ymin, self.x, self.h, self.w, \
+                self.ymin, self.x, self.h, self.w, self.bits_set, \
                 list(self.shadowedby), self.label, \
                 list(self.shadows), list(self.next))
 
     def __str__(self):
-        return "%d y=%d x=%d h=%d w=%d %s" % \
-               (self.id, self.ymin, self.x, self.h, self.w, self.label)
+        return "%d y=%d x=%d h=%d w=%d b=%d %s" % \
+               (self.id, self.ymin, self.x, \
+                self.h, self.w, self.bits_set, self.label)
         
 sys.setrecursionlimit(600)
 
@@ -495,6 +511,7 @@ for i in range(new_count):
         ga[i].set_label(lcl[clusters[i]])
     except KeyError:
         ga[i].set_label("I%d" % i)
+    ga[i].set_bits_set(gly_bits_set[i])
 
 print
 
@@ -513,7 +530,7 @@ class TextCollection(object):
 
     def r_collect(self, gl):
         self.collect(gl)
-        if len(gl.next) > 1:
+        if len(gl.next) > 0:
             # detect possible ordering problems
             print "r_collect", gl.id, "shadows", [id for id in gl.next if not ga[id].outputted]
         for id in gl.next:
@@ -558,7 +575,11 @@ print "finding overlapping glyphs in %d image bit rows" % img.shape[0]
 while y_ofs < img.shape[0]+y_max_height:
     found = find_in_row(ga, y_ofs, y_max_height)
     for i, g1 in enumerate(found):
+        if ga[i].bits_set < runt_bits_set:
+            continue
         for j, g2 in enumerate(found[i+1:], i+1):
+            if ga[j].bits_set < runt_bits_set:
+                continue
             g1.compare(g2)
             n_comparisons += 1
     y_ofs += y_max_height/2
@@ -570,7 +591,7 @@ for g in ga:
     g.set_next(hspace_hat)
     print g
 
-leftmost = [g for g in ga[1:] if len(g.shadowedby) == 0]
+leftmost = [g for g in ga[1:] if len(g.shadowedby) == 0 and g.bits_set >= runt_bits_set]
 print "%d leftmost glyphs" % len(leftmost)
 for g in leftmost:
     print g
@@ -589,4 +610,10 @@ for left in leftmost:
 #            # recursively follow gl.shadowedby...
 
 
+tc.dump_all()
+
+print "unused glyphs"
+for g in ga:
+    if not g.outputted and g.bits_set >= runt_bits_set:
+        print repr(g)
 tc.show()
