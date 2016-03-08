@@ -270,7 +270,7 @@ for y in range(labeled_glyphs.shape[0]):
 glyphs = [None]*n_labels
 
 fig, ax = plt.subplots()
-ax.set_title("Contrast (unfattened) image with glyph position markers")
+ax.set_title("Contrast (unfattened) image with glyph bounding boxes")
 ax.imshow(mask, interpolation='nearest', cmap=plt.cm.gray)
 
 gly_size_hist = np.zeros((max_bb_x+2, max_bb_y+2), dtype='int32')
@@ -313,6 +313,7 @@ ax.set_yticks(np.arange(gly_size_hist.shape[1])+0.5, minor=False)
 #ax.xaxis.tick_top()
 ax.set_xticklabels(row_labels, minor=False, rotation=90)
 ax.set_yticklabels(column_labels, minor=False)
+##plt.colorbar()
 plt.show()
 
 
