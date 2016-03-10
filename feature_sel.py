@@ -28,7 +28,9 @@ options:
 
 -h         this help
 -v         be verbose
+-k <file>  read specification of kernel to convolve with incoming image from file
 -c [R|G|B] select color plane from incoming image
+-d <delta> amount to tweak threshold value from Otsu algorithm
 -m         fold pixels to monochrome by averaging RGB values
 -M <x,y>   specify maximum glyph sizes in pixels
 -o <outfile>  output pickled results
@@ -104,15 +106,17 @@ def show_image(label, img, show_values=False):
 
 progname = sys.argv[0]
 verbose = False
+kern_file = None
 fold_pixels_to_monochrome = False
 colour_plane = None
+otsu_tweak = 13
 max_bb_x = 48
 max_bb_y = 48
 outfname = None
 
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -131,6 +135,10 @@ for flag, value in opts:
         colour_plane = value
     elif flag == '-o':
         outfname = value
+    elif flag == '-d':
+        otsu_tweak = float(value)
+    elif flag == '-k':
+        kern_file = value
     else:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
@@ -171,12 +179,22 @@ kernel_5x5 = np.array([[-1, -1, -1, -1, -1],
 highpass = ndimage.convolve(img, kernel_3x3)
 # not actually using the convolved image...
 
-gb_sigma = 15
-lowpass = ndimage.gaussian_filter(img, gb_sigma)
-gauss_highpass = img - lowpass
+if kern_file:
+    with open(kern_file) as f:
+        k_spec = [line for line in f.readlines() if not line.startswith('#')]
+    kern = eval(''.join(k_spec))
+    img = ndimage.convolve(img, kern)
+    process_how = "Convolve with " + kern_file
+else:
+    gb_sigma = 15
+    img = img - ndimage.gaussian_filter(img, gb_sigma)
+    #process_how = "Gaussian Sharpening σ=%f" % gb_sigma
+    process_how = "Gaussian Sharpening \\sigma=%f" % gb_sigma
 
-img = gauss_highpass
-show_image("Gaussian Sharpening σ=%f" % gb_sigma, img)
+show_image(process_how, img)
+#plt.title(process_how+" image")
+#plt.imshow(img, cmap = cm.Greys_r)
+#plt.show()
 
 #img = median(img/256.0, disk(1))
 #img = enhance_contrast(img/256.0, disk(1))
@@ -186,12 +204,14 @@ show_image("Gaussian Sharpening σ=%f" % gb_sigma, img)
 # threshold to separate the foreground from background.
 val = filters.threshold_otsu(img)
 print "threshold from Otsu method is %f" % val
-used_threshold = val+13
+used_threshold = val+otsu_tweak
 #FIXME: parameterize or estimate the literal constant in the previous line!!!
 print "using threshold of %f" % used_threshold
 mask = img < used_threshold  # fudge the threshold to minimize the number of connected regions
 
-plot_with_histogram(img, "Sharpened image", Otsu_threshold=val, used_threshold=used_threshold)
+#plot_with_histogram(img, "Sharpened image", Otsu_threshold=val, used_threshold=used_threshold)
+print process_how
+plot_with_histogram(img, process_how, Otsu_threshold=val, used_threshold=used_threshold)
 
 if False:
     for incr in np.linspace(8, 18, 11):
