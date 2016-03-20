@@ -9,6 +9,7 @@ from skimage import filters
 from skimage import img_as_ubyte
 import skimage.segmentation as seg
 from scipy import ndimage
+from scipy import signal
 from skimage import measure
 from skimage.filters.rank import median, enhance_contrast
 from skimage.morphology import disk
@@ -16,6 +17,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import cPickle
 from ocr_utils import *
+from valley import find_local_minimum
+from scipy import interpolate
 
 def help():
     print """
@@ -33,6 +36,7 @@ options:
 -d <delta> amount to tweak threshold value from Otsu algorithm
 -m         fold pixels to monochrome by averaging RGB values
 -M <x,y>   specify maximum glyph sizes in pixels
+-s         generate splines for segmentation assistance
 -o <outfile>  output pickled results
 
    x
@@ -113,10 +117,15 @@ otsu_tweak = 13
 max_bb_x = 48
 max_bb_y = 48
 outfname = None
+splines = None
 
+vslice_samp_window = 150
+threshold_arg_curvature = 0.003
+depth_threshold = 0.3
+width_threshold = 0.2
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:s")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -139,6 +148,8 @@ for flag, value in opts:
         otsu_tweak = float(value)
     elif flag == '-k':
         kern_file = value
+    elif flag == '-s':
+        splines = []
     else:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
@@ -166,7 +177,170 @@ plt.title(sample_how+" image")
 plt.imshow(img, cmap = cm.Greys_r)
 plt.show()
 
+def deriv2_of_horiz_bands(img, hband_size):
+    """For each horizontal band in image, calculate second
+    derivatives of pixel densities.
 
+
+    Divide the image into horizontal bands with each 
+    band consisting of hband_size scanlines.
+
+    For each band, sum the pixels in the vertical direction.
+
+    Return the second difference of the summation in the
+    corresponding result row, as well as the detrended
+    sums divided by the standard deviation of the sums
+    for each band.
+    """
+
+    #FIXME: a partial band at the bottom of the image is ignored
+    img_height, img_width = img.shape[:2]
+    n_bands = img_height / hband_size
+    d2 = np.empty((n_bands, img_width-2))
+    detr = np.empty((n_bands, img_width))
+    for sl_index in range(n_bands):
+        window_top = sl_index*hband_size
+        band = img[window_top:window_top+hband_size,...]
+        sum_ = band.sum(axis=0)
+        d2[sl_index,...] = np.diff(sum_, n=2)
+        dd = -signal.detrend(sum_)
+        detr[sl_index,...] = dd / dd.std()
+    return np.pad(d2, ((0,0), (1,1)), 'edge'), detr
+
+
+
+def plot_band0(img, vslice_samp_window):
+    img_width = img.shape[1]
+    vsw0 = img[0:vslice_samp_window,...]
+    sum0 = vsw0.sum(axis=0)
+    var0 = vsw0.var(axis=0)
+    dif0 = np.diff(sum0, n=2)
+    fig, axes = plt.subplots(2,1, sharex=True)
+    axes[0].set_title("Image Band 0")
+    axes[0].imshow(vsw0)
+    axes[0].set_xlim([0, img_width])
+    axes[0].set_ylim([vslice_samp_window, 0])
+    #axes[0].colorbar()
+    sum_line, = axes[1].plot(np.arange(img_width), sum0, "k-", label="sum")
+    var_line, = axes[1].plot(np.arange(img_width), var0, "r-", label="variance")
+    dif0 = deriv2_of_horiz_bands(img, vslice_samp_window)[0][0,]
+    dif_line, = axes[1].plot(np.arange(img_width), dif0, "g-", label="$2nd$ difference")
+    plt.legend(handles=[sum_line, var_line, dif_line], loc="center right")
+    axes[1].set_xlim([0, img_width])
+    plt.show()
+    print axes.shape
+    print vsw0.shape
+
+
+def plot_second_derivatives(detrended, dif, sel_x, sel_y, sel_z, vslice_samp_window):
+    def closure(sel_x, sel_y, sel_z, dif):
+        def format_coord(x, y):
+            xi, yi = int(x), int(y)
+            try:
+                s = "%d" % dif[yi, xi]
+            except IndexError:
+                s = "?"
+            return "x=%1.1f    y=%1.1f %s" % (x, y, s)
+        return format_coord
+    
+    format_coord = closure(sel_x, sel_y, sel_z, dif)
+    
+    fig, ax = plt.subplots()
+    ax.set_title("second-derivatives of mean pixel densities / band")
+    ax.invert_yaxis()
+    ax.scatter(sel_y, sel_x, c=sel_z, s=np.abs(sel_z), alpha=0.5)
+    ax.format_coord = format_coord
+    plt.xlabel("x")
+    plt.ylabel("band $(w=%d)$" % vslice_samp_window)
+    x = np.arange(detrended.shape[1])
+    for i in range(detrended.shape[0]):
+        ax.plot(x, -detrended[i,...] / 10.0 + i + 0.5, "g-")
+    plt.show()
+
+
+def walk_bands(band_origin, x, detrended):
+    """Trace skew in thin vertical gap in text through sample bands.
+
+    band_origin is which band the x value is from.
+
+    x is the position in the originating band of the greatest (negative sign)
+    curvature in the summed pixel intensities (saddle).
+
+    detrended is a 2-D array of detrended sums for each band.
+
+    Returns
+    -------
+
+    List of (maximum-depth-offset, width, depth) tuples in each
+    band that are transitively nearest neighbours to the valley
+    at (band_origin, x).
+    """
+    bands = [None] * detrended.shape[0]
+    bands[band_origin] = x
+    cx = x
+    for i in range(band_origin, -1, -1):
+        bands[i] = (m, w, d) = find_local_minimum(cx, detrended[i])
+        cx = m
+
+    cx = x
+    for i in range(band_origin+1, len(bands)):
+        bands[i] = (m, w, d) = find_local_minimum(cx, detrended[i])
+        cx = m
+
+    return bands
+
+    
+def fmt_neighbourhood(a, left, right):
+    return ' '.join(["%.2f" % item for item in a[left:right+1]])
+
+
+def gen_splines(img, vslice_samp_window, threshold_arg_curvature, depth_threshold, width_threshold):
+    plot_band0(img, vslice_samp_window)
+    
+    dif, detrended = deriv2_of_horiz_bands(img, vslice_samp_window)
+    zero_vals = np.zeros_like(dif)
+    sel = np.where(dif < np.percentile(dif, 100*threshold_arg_curvature, axis=1, keepdims=True), dif, zero_vals)
+    sel_x, sel_y = sel.nonzero()
+    sel_z = dif[sel.nonzero()]
+    
+    plot_second_derivatives(detrended, dif, sel_x, sel_y, sel_z, vslice_samp_window)
+    
+    m_w_d = np.array([find_local_minimum(y, detrended[x]) for (x, y) in zip(sel_x, sel_y)])
+    
+    max_depth = m_w_d[...,2].max()
+    
+    width_pcentile = np.percentile(m_w_d[m_w_d[...,2]>max_depth*depth_threshold,1], 100*width_threshold)
+    
+    print m_w_d[m_w_d[...,2]>max_depth*depth_threshold,...]
+    
+    plt.title("distribution of valley widths and depths")
+    plt.xlabel("widths")
+    plt.ylabel("depths")
+    plt.hist2d(m_w_d[...,1], m_w_d[...,2], bins=40)
+    plt.show()
+    
+    band_points = []
+    splines = []
+    for i, (x, y, z) in enumerate(zip(sel_x, sel_y, sel_z)):
+        (m, w, d) = m_w_d[i,...]
+        if d > max_depth*depth_threshold and w < width_pcentile:
+            print i, x,y,z, m,w,d, fmt_neighbourhood(detrended[x], m-w, m+w),
+            if (m,w,d) in band_points:
+                print "duplicate"
+            else:
+                bands = walk_bands(x, y, detrended)
+                print bands
+                band_points += bands
+                s_x = np.arange(detrended.shape[0])*vslice_samp_window + vslice_samp_window/2.0
+                s_y = [b[0] for b in bands]
+                spl = interpolate.splrep(s_x, s_y, s=0.5)
+                splines.append(spl)
+    return splines
+
+if splines is not None:
+    splines = gen_splines(img, vslice_samp_window, threshold_arg_curvature, depth_threshold, width_threshold)
+    print splines
+    
 kernel_3x3 = np.array([[-1, -1, -1],
                    [-1,  8, -1],
                    [-1, -1, -1]])
@@ -189,7 +363,7 @@ else:
     gb_sigma = 15
     img = img - ndimage.gaussian_filter(img, gb_sigma)
     #process_how = "Gaussian Sharpening σ=%f" % gb_sigma
-    process_how = "Gaussian Sharpening \\sigma=%f" % gb_sigma
+    process_how = "Gaussian Sharpening $\\sigma=%.1f$" % gb_sigma
 
 show_image(process_how, img)
 #plt.title(process_how+" image")
@@ -227,6 +401,17 @@ mask_fat[1::,::] |= mask[:-1:,::]
 mask_fat[::,1::] |= mask[::,:-1:]
 mask_fat[2::,::] |= mask[:-2:,::]
 mask_fat[::,2::] |= mask[::,:-2:]
+
+print "splines", splines
+if splines is not None:
+    y = range(img.shape[0])
+    axis = plt.gca()
+    for spline in splines:
+        print "interpolating spline", spline
+        x = interpolate.splev(y, spline, der=0).astype(int)
+        mask[y,x] = False
+        mask_fat[y,x] = False
+        axis.plot(x, y, "r-")
 
 plt.title("Fattened Image mask from modified Otsu")
 plt.imshow(mask_fat, cmap='gray')
