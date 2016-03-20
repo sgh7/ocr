@@ -41,7 +41,7 @@ cl_img_file=single03b.png
 
 # do feature selection
 if echo $tests | grep -q f ; then
-	$echo ./feature_sel.py $verbose -c B -o $featurefile $imgfile
+	$echo ./feature_sel.py $verbose -c B -g 15.0 -o $featurefile $imgfile
 fi
 
 # output similarity matrix and training data

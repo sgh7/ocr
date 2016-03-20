@@ -31,6 +31,7 @@ options:
 
 -h         this help
 -v         be verbose
+-g <sigma> Gaussian filter parameter
 -k <file>  read specification of kernel to convolve with incoming image from file
 -c [R|G|B] select color plane from incoming image
 -d <delta> amount to tweak threshold value from Otsu algorithm
@@ -118,6 +119,7 @@ max_bb_x = 48
 max_bb_y = 48
 outfname = None
 splines = None
+gb_sigma = 0.0
 
 vslice_samp_window = 150
 threshold_arg_curvature = 0.003
@@ -125,7 +127,7 @@ depth_threshold = 0.3
 width_threshold = 0.2
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:s")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -150,6 +152,8 @@ for flag, value in opts:
         kern_file = value
     elif flag == '-s':
         splines = []
+    elif flag == '-g':
+        gb_sigma = float(value)
     else:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
@@ -359,11 +363,12 @@ if kern_file:
     kern = eval(''.join(k_spec))
     img = ndimage.convolve(img, kern)
     process_how = "Convolve with " + kern_file
-else:
-    gb_sigma = 15
+elif gb_sigma > 0.0:
     img = img - ndimage.gaussian_filter(img, gb_sigma)
     #process_how = "Gaussian Sharpening σ=%f" % gb_sigma
     process_how = "Gaussian Sharpening $\\sigma=%.1f$" % gb_sigma
+else:
+    process_how = "unmodified Original image"
 
 show_image(process_how, img)
 #plt.title(process_how+" image")
