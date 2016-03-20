@@ -114,7 +114,7 @@ verbose = False
 kern_file = None
 fold_pixels_to_monochrome = False
 colour_plane = None
-otsu_tweak = 13
+otsu_tweak = None
 max_bb_x = 48
 max_bb_y = 48
 outfname = None
@@ -379,27 +379,36 @@ show_image(process_how, img)
 #img = enhance_contrast(img/256.0, disk(1))
 
 
-# The Otsu method is a simple heuristic to find a 
-# threshold to separate the foreground from background.
-val = filters.threshold_otsu(img)
-print "threshold from Otsu method is %f" % val
-used_threshold = val+otsu_tweak
-#FIXME: parameterize or estimate the literal constant in the previous line!!!
-print "using threshold of %f" % used_threshold
-mask = img < used_threshold  # fudge the threshold to minimize the number of connected regions
+def mask_otsu(img, otsu_tweak, process_how):
+    # The Otsu method is a simple heuristic to find a 
+    # threshold to separate the foreground from background.
+    val = filters.threshold_otsu(img)
+    print "threshold from Otsu method is %f" % val
+    used_threshold = val+otsu_tweak
+    #FIXME: parameterize or estimate the literal constant in the previous line!!!
+    print "using threshold of %f" % used_threshold
+    mask = img < used_threshold  # fudge the threshold to minimize the number of connected regions
+    
+    #plot_with_histogram(img, "Sharpened image", Otsu_threshold=val, used_threshold=used_threshold)
+    print process_how
+    plot_with_histogram(img, process_how, Otsu_threshold=val, used_threshold=used_threshold)
+    
+    # could adapt below to estimate otsu_tweak
+    if False:
+        for incr in np.linspace(8, 18, 11):
+            mask_incr = img < (val+incr)
+            plt.imshow(mask_incr, cmap = cm.Greys_r)
+            contours = measure.find_contours(mask_incr, 0.5, fully_connected='high')
+            plt.title("threshold=Glbl Otsu + %d, nc=%d" % (incr, len(contours)))
+            plt.show()
+    #plot_with_histogram(mask)
+    return mask
 
-#plot_with_histogram(img, "Sharpened image", Otsu_threshold=val, used_threshold=used_threshold)
-print process_how
-plot_with_histogram(img, process_how, Otsu_threshold=val, used_threshold=used_threshold)
-
-if False:
-    for incr in np.linspace(8, 18, 11):
-        mask_incr = img < (val+incr)
-        plt.imshow(mask_incr, cmap = cm.Greys_r)
-        contours = measure.find_contours(mask_incr, 0.5, fully_connected='high')
-        plt.title("threshold=Glbl Otsu + %d, nc=%d" % (incr, len(contours)))
-        plt.show()
-#plot_with_histogram(mask)
+if otsu_tweak is not None:
+    mask = mask_otsu(img, otsu_tweak, process_how)
+else:
+    print >>sys.stderr, "No thresholding method defined."
+    sys.exit(1)
 
 mask_fat = mask.copy()
 mask_fat[1::,::] |= mask[:-1:,::]

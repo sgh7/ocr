@@ -25,7 +25,7 @@ fi
 
 # do feature selection
 if echo $tests | grep -q f ; then
-	./feature_sel.py $verbose -c B -g 15.0 -o $picklefile $imgfile
+	./feature_sel.py $verbose -c B -g 15.0 -d 13 -o $picklefile $imgfile
 fi
 
 # output similarity matrix and training data
