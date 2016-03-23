@@ -7,6 +7,7 @@ import numpy as np
 from skimage import io
 from skimage import filters
 from skimage import img_as_ubyte
+from skimage.transform import integral_image
 import skimage.segmentation as seg
 from scipy import ndimage
 from scipy import signal
@@ -35,6 +36,7 @@ options:
 -k <file>  read specification of kernel to convolve with incoming image from file
 -c [R|G|B] select color plane from incoming image
 -d <delta> amount to tweak threshold value from Otsu algorithm
+-w <block_size> window size for local thresholding (must be positive odd integer)
 -m         fold pixels to monochrome by averaging RGB values
 -M <x,y>   specify maximum glyph sizes in pixels
 -s         generate splines for segmentation assistance
@@ -115,11 +117,13 @@ kern_file = None
 fold_pixels_to_monochrome = False
 colour_plane = None
 otsu_tweak = None
+block_size = None
 max_bb_x = 48
 max_bb_y = 48
 outfname = None
 splines = None
 gb_sigma = 0.0
+threshold_offset = 0.4
 
 vslice_samp_window = 150
 threshold_arg_curvature = 0.003
@@ -127,7 +131,7 @@ depth_threshold = 0.3
 width_threshold = 0.2
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:w:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -148,6 +152,8 @@ for flag, value in opts:
         outfname = value
     elif flag == '-d':
         otsu_tweak = float(value)
+    elif flag == '-w':
+        block_size = float(value)
     elif flag == '-k':
         kern_file = value
     elif flag == '-s':
@@ -404,8 +410,150 @@ def mask_otsu(img, otsu_tweak, process_how):
     #plot_with_histogram(mask)
     return mask
 
+def callback(arr):
+    print "cb:", arr
+    return 0
+
+def callback0(*args, **kwargs):
+    print "cb(", args, kwargs, ")"
+    return 0
+
+def sum_xy(g, d, y, x, pad=0):
+    # from "A New Local Adaptive Thresholding Technique in Binarization"
+    #      T.R. Singh et. al, 
+    #      International Journal of Computer Science Issues, Vol. 8, Issue 6, No 2, November 2011
+    #      (1201.5227.pdf)
+    x += pad
+    y += pad
+    return (g[y+d-1, x+d-1] + g[y-d, x-d]) - \
+           (g[y-d, x+d-1] + g[y+d-1, x-d])
+
+def local_sum_loop(g, d, pad=0):
+    double_pad = pad+pad
+    sum = np.empty(tuple([la-double_pad for la in g.shape]), g.dtype)
+    for y in range(g.shape[0]-double_pad):
+        for x in range(g.shape[1]-double_pad):
+            sum[y, x] = sum_xy(g, d, y, x, pad=pad)
+    return sum
+
+def local_sum(g, d, pad=0):
+    h, w = [l-pad-pad for l in g.shape]
+    return (g[pad+d-1:h+pad+d-1, pad+d-1:w+pad+d-1] +
+            g[pad-d  :h+pad-d  , pad-d  :w+pad-d  ]) - \
+           (g[pad-d  :h+pad-d  , pad+d-1:w+pad+d-1] +
+            g[pad+d-1:h+pad+d-1, pad-d  :w+pad-d  ])
+
+def scale(m):
+    m = m - m.min()
+    m = m / m.max()
+    return m
+
+def latt(k, lmean, lmd, wsize, show_plot=False):
+    """Perform Local Adaptive Thresholding Technique of Binarization.
+
+    k is bias controlling the level of adaptive threshold value
+      is a float scalar in the range [0,1]  (0.06 suggested)
+
+    lmean is the local arithmetic mean of the pixels within the
+          weight x weight window around each pixel
+          is N x M float numpy array
+
+    lmd   is the local mean deviation (intensity minus lmean)
+          is N x M float numpy array
+
+    wsize is the window size (positive odd integer)
+
+
+    Returns
+    -------
+
+    tuple of binary mask and contours
+    """
+
+    print "w=%d  k=%g" % (wsize, k)
+    thresh_image = lmean * (1 + k*(lmd/(1-lmd) - 1.0))
+    mask = scaled_img < thresh_image
+    print mask
+    contours = measure.find_contours(mask, 0.5, fully_connected='high')
+    ccount = len(contours)
+    if show_plot:
+        plt.title("T.R. Singh et. al LATT $(w=%d, k=%g)$ contours=%d" % (wsize, k, ccount))
+        plt.imshow(mask, cmap='gray')
+        plt.show()
+    return mask, contours
+
 if otsu_tweak is not None:
     mask = mask_otsu(img, otsu_tweak, process_how)
+    threshold_process_how = "modified Otsu"
+elif block_size is not None:
+    #timg = np.arange(100, dtype=np.float64).reshape(10,10)
+    timg = np.arange(100, dtype=np.int32).reshape(10,10)
+    print "timg convolved with 3x3 unit matrix"
+    print ndimage.convolve(timg, np.array([[1,1,1],[1,1,1],[1,1,1]]), mode='constant', cval=0)
+    tiimg = integral_image(timg)
+    print "integral image of 10x10 0..99"
+    print tiimg
+
+    d = 1
+    pad = 2
+    print "lcl sum loop d=%d" % d
+    print local_sum_loop(np.pad(tiimg, pad, mode='constant'), d, pad)
+
+    d = 2
+    pad = 2
+    print "lcl sum loop d=%d" % d
+    print local_sum_loop(np.pad(tiimg, pad, mode='constant'), d, pad)
+
+    print "timg convolved with 5x5 unit matrix"
+    print ndimage.convolve(timg, np.array([[1]*5]*5), mode='constant', cval=0)
+    tiimg = integral_image(timg)
+    print "integral image of 10x10 0..99"
+    print tiimg
+    d = 3
+    pad = 4
+    print "lcl sum loop d=%d" % d
+    print local_sum_loop(np.pad(tiimg, pad, mode='constant'), d, pad)
+    print local_sum(np.pad(tiimg, pad, mode='constant'), d, pad)
+
+#    thresh_image = np.zeros(timg.shape, 'double')
+#    ndimage.generic_filter(timg, callback0, block_size,
+#                           output=thresh_image, mode='reflect', extra_arguments=(block_size,), extra_keywords={"one": 1})
+#    mask = img > (thresh_image - threshold_offset)
+#    print mask
+
+    d = int(round(block_size/2.0))
+    pad = d+1
+    scaled_img = scale(img)
+    print "scaled_img: max %g min %g mean %g std-dev %g" % (scaled_img.max(), scaled_img.min(), scaled_img.mean(), scaled_img.std())
+    print scaled_img
+    padded_iimg = np.pad(integral_image(scaled_img), pad, mode='reflect')
+    lsum = local_sum(padded_iimg, d, pad=pad)
+    lmean = lsum / (block_size*block_size)
+    print "lmean: max %g min %g mean %g std-dev %g" % (lmean.max(), lmean.min(), lmean.mean(), lmean.std())
+    print lmean
+    lmd = lmean-scaled_img
+    print "lmd: max %g min %g mean %g std-dev %g" % (lmd.max(), lmd.min(), lmd.mean(), lmd.std())
+    print lmd
+
+    plt.imshow(lmd)
+    plt.show()
+
+    mask, contours = latt(0.06, lmean, lmd, block_size, show_plot=True)
+    threshold_process_how = "Local Adaptive Thresholding"
+#    k = 0.06
+#    for k in np.linspace(0.01, 0.10, 10):
+#        mask, contours = latt(k, lmean, lmd, block_size, show_plot=True)
+#        continue
+#        print "k=%g" % k
+#        thresh_image = lmean * (1 + k*(lmd/(1-lmd) - 1.0))
+#        mask = scaled_img > thresh_image
+#        print mask
+#        contours = measure.find_contours(mask, 0.5, fully_connected='high')
+#        ccount = len(contours)
+#        plt.title("T.R. Singh et. al LATT $(k=%g)$ contours=%d" % (k, ccount))
+#        plt.imshow(mask, cmap='gray')
+#        plt.show()
+#    sys.exit(0)
 else:
     print >>sys.stderr, "No thresholding method defined."
     sys.exit(1)
@@ -416,8 +564,8 @@ mask_fat[::,1::] |= mask[::,:-1:]
 mask_fat[2::,::] |= mask[:-2:,::]
 mask_fat[::,2::] |= mask[::,:-2:]
 
-print "splines", splines
 if splines is not None:
+    print "splines", splines
     y = range(img.shape[0])
     axis = plt.gca()
     for spline in splines:
@@ -427,7 +575,7 @@ if splines is not None:
         mask_fat[y,x] = False
         axis.plot(x, y, "r-")
 
-plt.title("Fattened Image mask from modified Otsu")
+plt.title("Fattened Image mask from "+threshold_process_how)
 plt.imshow(mask_fat, cmap='gray')
 #plt.imshow(gauss_highpass, cmap = cm.Greys_r)
 plt.show()
