@@ -635,6 +635,7 @@ for y in range(labeled_glyphs.shape[0]):
             gly_max_y[label] = y
 
 glyphs = [None]*n_labels
+gly_bits_set = [0]*n_labels
 
 fig, ax = plt.subplots()
 ax.set_title("Contrast (unfattened) image with glyph bounding boxes")
@@ -654,8 +655,9 @@ for label in range(1, n_labels):  # label 0 is the entire image background
     gly_size_hist[h_h, w_h] += 1
     if w <= max_bb_x and h <= max_bb_y:
         glyphs[label] = glyph_copy(mask, labeled_glyphs, label, max_bb_y+1, max_bb_x+1, min_y, min_x, h, w)
+        gly_bits_set[label] = np.bincount(glyphs[label].ravel())[1]
 
-    print label, min_y, min_x, h, w
+    print label, min_y, min_x, h, w, gly_bits_set[label]
     #ax.plot(max_x, max_y, "r+")
     ax.plot([min_x, max_x], [min_y]*2, "r-")
     ax.plot([min_x, max_x], [max_y]*2, "r-")
@@ -691,6 +693,7 @@ if outfname:
     o.gly_min_y = gly_min_y
     o.gly_max_y = gly_max_y
     o.glyphs = glyphs[1:]     # ignore background
+    o.gly_bits_set = gly_bits_set
     with open(outfname, "w") as of:
        cPickle.dump(o, of)
 

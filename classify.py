@@ -96,13 +96,11 @@ def get_xywh(i):
     return x, y, w, h
 
 def get_gly_pos_dims(pin):
-    return pin.gly_min_x, pin.gly_max_x, pin.gly_min_y, pin.gly_max_y, pin.glyphs
-    #print "get_gly_pos_dims switcheroo!!"
-    #return pin.gly_min_y, pin.gly_max_y, pin.gly_min_x, pin.gly_max_x, pin.glyphs
+    return pin.gly_min_x, pin.gly_max_x, pin.gly_min_y, pin.gly_max_y, pin.gly_bits_set, pin.glyphs
 
 def compose_resolved_img(height, width, pin, clusters, labeled_clusters, lcl, gcl):
 
-    gly_min_x, gly_max_x, gly_min_y, gly_max_y, glyphs = get_gly_pos_dims(pin)
+    gly_min_x, gly_max_x, gly_min_y, gly_max_y, gly_bits_set, glyphs = get_gly_pos_dims(pin)
 
     img = np.zeros((height, width), dtype=np.uint8)
     rimg = np.zeros((height, width), dtype=np.uint16)
@@ -206,15 +204,7 @@ with open(in_feature_file) as fd:
     pin = cPickle.load(fd)
     # restore "dummy" glyph as placeholder for entire image
     pin.glyphs = [np.zeros((pin.glyphs[0].shape), dtype=np.bool)] + pin.glyphs
-    gly_min_x, gly_max_x, gly_min_y, gly_max_y, glyphs = get_gly_pos_dims(pin)
-
-gly_bits_set = [0]*len(glyphs)
-for i, g in enumerate(glyphs[1:], 1):
-    try:
-        gly_bits_set[i] = np.bincount(g.ravel())[1]
-    except AttributeError:
-        pass
-#print gly_bits_set
+    gly_min_x, gly_max_x, gly_min_y, gly_max_y, gly_bits_set, glyphs = get_gly_pos_dims(pin)
 
 plt.hist(np.array(gly_bits_set), bins=100, normed=True, cumulative=False)
 plt.title("bitmap bitcounts")
@@ -231,7 +221,7 @@ if verbose:
     print glyphs[:2]
     print len(glyphs)
     print glyphs[0].shape
-    for id in ["gly_min_x", "gly_max_x", "gly_min_y", "gly_max_y"]:
+    for id in ["gly_min_x", "gly_max_x", "gly_min_y", "gly_max_y", "gly_bits_set"]:
         v = eval(id)
         print id, len(v), v[:5]
 
