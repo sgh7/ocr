@@ -251,12 +251,7 @@ print "most common height is %d, %d times" % (most_common_height, max_hist_heigh
 print "most common width is %d, %d times" % (most_common_width, max_hist_width)
 
 def peak_value(arr, ofs=0):
-    max_seen = min(arr)
-    ms_ofs = ofs
-    for i, val in enumerate(arr[ofs:], ofs):
-        if val > max_seen:
-            ms_ofs, max_seen = i, val
-    return ms_ofs, max_seen
+    return ofs+np.argmax(arr[ofs:])
 
 bit_sums_x = np.sum(img, axis=(0,2))
 bit_sums_y = np.sum(img, axis=(1,2))
@@ -264,8 +259,8 @@ rfft_x = np.fft.rfft(bit_sums_x)
 rfft_y = np.fft.rfft(bit_sums_y)
 a_rfft_x = np.abs(rfft_x)
 a_rfft_y = np.abs(rfft_y)
-hspace_hat = peak_value(a_rfft_x, most_common_width)[0]
-vspace_hat = peak_value(a_rfft_y, most_common_height)[0]
+hspace_hat = peak_value(a_rfft_x, most_common_width)
+vspace_hat = peak_value(a_rfft_y, most_common_height)
 #print "rfft_x: len=%d, abs=%s" % (len(rfft_x), a_rfft_x)
 print "max(a_rfft_x[%d:]) at position %d" % (most_common_width, hspace_hat)
 #print "rfft_y: len=%d, abs=%s" % (len(rfft_y), a_rfft_y)
