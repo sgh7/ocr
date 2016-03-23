@@ -191,13 +191,11 @@ for flag, value in opts:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
 
-glyphs = []
 fname = files[0]
 
 img = io.imread(fname)
 if verbose:
     print img.shape, img.dtype
-
 
 
 with open(in_feature_file) as fd:
