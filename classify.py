@@ -240,8 +240,10 @@ for i in range(1, len(glyphs)):
     except IndexError:
         print "*UGH*", i, w, h
 
-max_hist_height = max(hist_heights)
-max_hist_width = max(hist_widths)
+glyph_size_cutoff = 3
+
+max_hist_height = max(hist_heights[glyph_size_cutoff:])
+max_hist_width = max(hist_widths[glyph_size_cutoff:])
 most_common_height = hist_heights.index(max_hist_height)
 most_common_width = hist_widths.index(max_hist_width)
 
