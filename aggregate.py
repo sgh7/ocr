@@ -58,14 +58,13 @@ for i, (d, ix) in enumerate(zip(distances, indices)):
     print i, d, ix, tree.data[ix], gly_min_y[ix], gly_min_x[ix]
 
 def lookup(tree, y, x, from_, max_distance):
-    distances, indices = tree.query([y, x], k=2, distance_upper_bound=max_distance)
+    distances, indices = tree.query([y, x], k=4, distance_upper_bound=max_distance)
     for (d, ix) in zip(distances, indices):
         if ix == from_:
             continue
         if d > max_distance:
             break
-        return ix
-    return None
+        yield ix
 
 #
 # as the glyphs are scanned from top to bottom, 
@@ -148,13 +147,17 @@ for i in range(1, len(glyphs)):
     how = None
     if ldist < 10:  # FIXME!!
         # found a glyph above this one
-        other = lookup(tree, y-ldist, x, i, vspace_hat/2)
-        how = "v"
+        for over in lookup(tree, y-ldist, x, i, vspace_hat/2):
+            if same_column(tree, over, i, weld=False):
+                how = "v"
+                other = over
+                break
     else:
-        left = lookup(tree, y, x-hspace_hat/2, i, hspace_hat/2)
-        if left and same_column(tree, left, i, weld=True):
-            other = left
-            how = "h"
+        for left in lookup(tree, y, x-hspace_hat/2, i, hspace_hat/2):
+            if same_column(tree, left, i, weld=True):
+                other = left
+                how = "h"
+                break
     if other:
         print "joining %d with %d (%s)" % (i, other, how)
         add_pair(i, other, how)
