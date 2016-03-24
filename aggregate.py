@@ -132,6 +132,7 @@ def same_column(tree, left, right, weld=False):
 pairings = {}
 
 def add_pair(a, b, how):
+    print "joining %d with %d (%s)" % (a, b, how)
     a, b = (min(a,b), max(a, b))
     pairings[(a,b)] = how
 
@@ -143,24 +144,16 @@ for i in range(1, len(glyphs)):
     ldist = log_distance(my_level, amax)
     print i, y, x, h, w, gly_bits_set[i], my_level, amax, ldist, fmt_above(above)
     update_accum(accum, multipliers, glyphs[i], y, x, h, w)
-    other = None
-    how = None
     if ldist < 10:  # FIXME!!
         # found a glyph above this one
         for over in lookup(tree, y-ldist, x, i, vspace_hat/2):
             if same_column(tree, over, i, weld=False):
-                how = "v"
-                other = over
+                add_pair(i, over, "v")
                 break
-    else:
-        for left in lookup(tree, y, x-hspace_hat/2, i, hspace_hat/2):
-            if same_column(tree, left, i, weld=True):
-                other = left
-                how = "h"
-                break
-    if other:
-        print "joining %d with %d (%s)" % (i, other, how)
-        add_pair(i, other, how)
+    for left in lookup(tree, y, x-hspace_hat/2, i, hspace_hat/2):
+        if same_column(tree, left, i, weld=True):
+            add_pair(i, left, "h")
+            break
             
         
 if imgfname:
