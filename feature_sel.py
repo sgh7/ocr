@@ -167,9 +167,9 @@ for flag, value in opts:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
 
-fname = files[0]
+img_fname = files[0]
 
-img = io.imread(fname)
+img = io.imread(img_fname)
 
 show_image("Original", img)
 
@@ -700,6 +700,7 @@ if outfname:
     o.glyphs = glyphs[1:]     # ignore background
     o.gly_bits_set = gly_bits_set
     o.img_shape = img.shape
+    o.img_fname = img_fname
     with open(outfname, "w") as of:
        cPickle.dump(o, of)
 
