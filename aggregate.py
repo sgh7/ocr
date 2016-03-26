@@ -11,6 +11,47 @@ from scipy import spatial
 
 from ocr_utils import *
 
+def glyph_blt(pin):
+    """Re-create image based on incoming glyphs.
+
+    pin  - object containing arrays of glyphs and metadata
+    """
+    gly_min_x, gly_max_x, gly_min_y, gly_max_y, gly_bits_set, img_shape, glyphs = get_np_gly_pos_dims(pin)
+    img = np.zeros(img_shape, dtype=np.uint32)
+
+    for gi in range(1, len(glyphs)):
+        x, y, w, h = get_xywh(gi)
+        gl = glyphs[gi]
+        for i in range(w):
+            for j in range(h):
+                try:
+                    img[y+j, x+i] |= gl[j,i]*(0x80000000+gi)
+                except IndexError:
+                    print "*yikes(%d,%d)*" % (y+j, x+i)
+                except ValueError:
+                    print "missing glyph at %d" % (glyph_index)
+
+    def closure(img):
+        def format_coord(x, y):
+            xi, yi = int(x), int(y)
+            try:
+                intensity = img[yi, xi]
+                s = "glyph=%d" % (intensity & ~0x80000000)
+            except IndexError:
+                s = ""
+            return "x=%1.1f    y=%1.1f %s" % (x, y, s)
+
+        return format_coord
+
+
+    format_coord = closure(img)
+    plt.title("Incoming glyphs")
+    plt.imshow(img, cmap = cm.Greys_r)
+    plt.gca().format_coord = format_coord
+    plt.show()
+    return img, format_coord
+            
+
 def get_np_gly_pos_dims(pin):
     arrays = [np.array(a) for a in [pin.gly_min_x, pin.gly_max_x, pin.gly_min_y, pin.gly_max_y, pin.gly_bits_set]]
     return tuple(arrays+[pin.img_shape, pin.glyphs])
@@ -35,7 +76,8 @@ with open(fname) as fd:
     pin = cPickle.load(fd)
     print "fudging img_shape for now..."
     pin.img_shape = (1920, 2560)
-    print "in %s, I found %d unlabeled glyphs" % (fname, len(pin.glyphs))
+    print "in %s, I found %d glyphs" % (fname, len(pin.glyphs))
+    pin.glyphs = [np.zeros((pin.glyphs[0].shape), dtype=np.bool)] + pin.glyphs
     gly_min_x, gly_max_x, gly_min_y, gly_max_y, gly_bits_set, img_shape, glyphs = get_np_gly_pos_dims(pin)
 
 print glyphs[0].shape
@@ -85,16 +127,20 @@ d = multipliers[0] / multipliers[1]
 print d
 print multipliers[-10:]
 
-def update_accum(accum, multipliers, glyph, y, x, h, w):
+bin_img, bi_format_coord = glyph_blt(pin)
+
+def update_accum(accum, multipliers, glyph, y, x, h, w, verbose=False):
     mbase = multipliers[y:]
     abase = accum[x:]
     for j in range(h):
         for i in range(w):
             if glyph[j, i]:
                 try:
-                    #print "%g + %g" % (abase[i], mbase[j]),
+                    if verbose:
+                        print "%g + %g" % (abase[i], mbase[j]),
                     abase[i] += mbase[j]
-                    #print "is %g" % abase[i]
+                    if verbose:
+                        print "is %g" % abase[i]
                 except RuntimeWarning:
                     print "RTW:", j, i, j+y, i+x, abase[i], mbase[j]
 
@@ -142,8 +188,11 @@ for i in range(1, len(glyphs)):
     above = accum[x:x+w]
     amax = above.max()
     ldist = log_distance(my_level, amax)
-    print i, y, x, h, w, gly_bits_set[i], my_level, amax, ldist, fmt_above(above)
-    update_accum(accum, multipliers, glyphs[i], y, x, h, w)
+    print "%d y,x=%d,%d h,w=%d,%d b=%d level=%.3g amax=%.3g ldist=%.1f %s" % (i, y, x, h, w, gly_bits_set[i], my_level, amax, ldist, fmt_above(above))
+    #if i in [1650, 1696, 1697]:
+    if True:
+        show_glyph(glyphs[i])
+    update_accum(accum, multipliers, glyphs[i], y, x, h, w, verbose=1985 < x < 2015)
     if ldist < 10:  # FIXME!!
         # found a glyph above this one
         for over in lookup(tree, y-ldist, x, i, vspace_hat/2):
@@ -159,14 +208,15 @@ for i in range(1, len(glyphs)):
 if imgfname:
     img = img = io.imread(imgfname)
     plt.title("image with aggregations")
-    plt.imshow(img, cmap = cm.Greys_r)
+    plt.imshow(bin_img, cmap = cm.Greys_r)
     ax = plt.gca()
-    print pairings
+    #print pairings
     td = tree.data
     for (k, how) in pairings.iteritems():
-        print k, how
+        #print k, how
         a, b = k
         style = "r-" if how == 'h' else "g-"
         ax.plot([td[a][1], td[b][1]], [td[a][0], td[b][0]], style)
+    ax.format_coord = bi_format_coord
     plt.show()
     
