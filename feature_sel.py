@@ -175,7 +175,8 @@ show_image("Original", img)
 
 sample_how = None
 if fold_pixels_to_monochrome:
-    img = (img[::,::,0]+img[::,::,1]+img[::,::,2])/3
+    #img = (img[::,::,0]+img[::,::,1]+img[::,::,2])/3
+    img = img.mean(axis=2)
     sample_how = "Averaged"
 elif colour_plane:
     img = img[::,::,"RGB".index(colour_plane)] + 0.0
