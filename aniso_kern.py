@@ -95,10 +95,9 @@ def gaussian_filter1d_origin(width, sigma, origin=0):
     weights = gaussian_filter1d_weights(sigma)
     return scipy.ndimage.correlate1d(m, weights, origin=origin)
 
-def generate_sum_gauss(w, gp, ortho_sigma, angle):
+def generate_sum_gauss(gp, ortho_sigma, angle):
     """Compute sum of colinear anisotropic Gaussian filters.
 
-    w   is width of array (odd positive integer)
     gp  is an Nx3 array of parameters for the Gaussian functions
         to be summed along the principal axis
     ortho_sigma is the standard deviation for the spread
@@ -114,9 +113,20 @@ def generate_sum_gauss(w, gp, ortho_sigma, angle):
 
     # 
     wg = (4.0*gp['sigma']+0.5).astype(int)   # widths for each Gaussian out past 4 std deviations
-    eval_min = int((gp['b']-wg).min())
-    eval_max = int((gp['b']+wg).max())
-    weights = [0.0] * (1+eval_max-eval_min)
+    f_min = (gp['b']-wg).min()
+    f_max = (gp['b']+wg).max()
+    eval_min = int(f_min)
+    eval_max = int(f_max)
+    b = 1+eval_max-eval_min
+    if b % 2 == 0:
+        # force width to an odd integer
+        if abs(f_min-eval_min) < abs(f_max-eval_max):
+            f_min -= 1
+        else:
+            f_max += 1
+        b += 1
+    
+    weights = [0.0] * b
     x = np.arange(eval_min, eval_max+1)
     ma, mb = np.meshgrid(x, gp['b'])
     arg = ma - mb
@@ -125,23 +135,27 @@ def generate_sum_gauss(w, gp, ortho_sigma, angle):
     wa = amplitudes * np.exp(-0.5 * arg*arg / variances)
     weights = wa.sum(axis=0) / wa.sum()
 
-    # 
-    b = w+w+1
-
-    m = np.zeros((b,), dtype=np.float)
-    m[w] = 1.0
-    corr_1d = scipy.ndimage.correlate1d(m, weights)
-
-    print "weights len=%d" % weights.shape, weights
-    print weights
-    print "corr_1d len=%d" % corr_1d.shape, corr_1d
-    fig, (ax1, ax2) = plt.subplots(1, 2)
-    ax1.plot(x, weights, "r+")
-    ax2.plot(range(b), corr_1d, "g+")
-    plt.show()
+    if False:
+        # 
+        b = w+w+1
     
-    m = np.zeros((b, b), dtype=np.float)
-    m[w,...] = corr_1d
+        m = np.zeros((b,), dtype=np.float)
+        m[w] = 1.0
+        corr_1d = scipy.ndimage.correlate1d(m, weights)
+    
+        print "weights len=%d" % weights.shape, weights
+        print weights
+        print "corr_1d len=%d" % corr_1d.shape, corr_1d
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        ax1.plot(x, weights, "r+")
+        ax2.plot(range(b), corr_1d, "g+")
+        plt.show()
+        
+        m = np.zeros((b, b), dtype=np.float)
+        m[w,...] = corr_1d
+
+    m = np.zeros((b,b), dtype=np.float)
+    m[b//2,...] = weights
     ortho_weights = gaussian_filter1d_weights(ortho_sigma)
     wm = scipy.ndimage.correlate1d(m, ortho_weights, axis=0)
 
@@ -238,7 +252,11 @@ Options:
 
     if gp is not None:
         print gp
-        generate_sum_gauss(int(weight_sigma) if weight_sigma else 11, gp, 1.1, angle if angle else 0.0)
+        #generate_sum_gauss(int(weight_sigma) if weight_sigma else 11, gp, 1.1, angle if angle else 0.0)
+        psf = generate_sum_gauss(gp, 1.1, angle if angle else 0.0)
+        U, s, V = np.linalg.svd(psf, full_matrices=True, compute_uv=True)
+        print "results of Singular Value Decomposition of %dx%d PSF matrix" % psf.shape
+        print U; print s; print V
         sys.exit(0)
 
     if offset is not None:
