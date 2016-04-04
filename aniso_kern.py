@@ -121,18 +121,18 @@ def generate_sum_gauss(gp, ortho_sigma, angle):
     if b % 2 == 0:
         # force width to an odd integer
         if abs(f_min-eval_min) < abs(f_max-eval_max):
-            f_min -= 1
+            eval_min -= 1
         else:
-            f_max += 1
+            eval_max += 1
         b += 1
-    
-    weights = [0.0] * b
+
     x = np.arange(eval_min, eval_max+1)
     ma, mb = np.meshgrid(x, gp['b'])
     arg = ma - mb
     variances = np.meshgrid(x, gp['sigma']*gp['sigma'])[1]
     amplitudes = np.meshgrid(x, gp['a'])[1]
     wa = amplitudes * np.exp(-0.5 * arg*arg / variances)
+    print "shapes: x", x.shape, "variances", variances.shape, "wa", wa.shape
     weights = wa.sum(axis=0) / wa.sum()
 
     if False:
@@ -155,6 +155,7 @@ def generate_sum_gauss(gp, ortho_sigma, angle):
         m[w,...] = corr_1d
 
     m = np.zeros((b,b), dtype=np.float)
+    print "b", b, "weights.len", len(weights)
     m[b//2,...] = weights
     ortho_weights = gaussian_filter1d_weights(ortho_sigma)
     wm = scipy.ndimage.correlate1d(m, ortho_weights, axis=0)
@@ -177,9 +178,15 @@ def generate_sum_gauss(gp, ortho_sigma, angle):
     print rotated.sum()
     return rotated
     
+def write_aniso_kernel(m, sigma1, sigma2, angle):
+    w = m.shape[0]
+    write_kernel("aniso-%dx%d_%g_%g_%g.kern" % (w, w, sigma1, sigma2, angle))
 
-def write_aniso_kernel(w, sigma1, sigma2, angle):
-    with open("aniso-%dx%d_%g_%g_%g.kern" % (w, w, sigma1, sigma2, angle), "w") as fd:
+def write_kernel(m, fname, comment=None):
+    w = m.shape[0]
+    with open(fname, "w") as fd:
+        if comment:
+            fd.write(comment+'\n')
         fd.write("np.array([")
         for i in range(w):
             fd.write('[')
@@ -257,6 +264,7 @@ Options:
         U, s, V = np.linalg.svd(psf, full_matrices=True, compute_uv=True)
         print "results of Singular Value Decomposition of %dx%d PSF matrix" % psf.shape
         print U; print s; print V
+        write_kernel(psf, "psf.kern")
         sys.exit(0)
 
     if offset is not None:
@@ -285,4 +293,4 @@ Options:
         print m, m.sum()
     
     if do_write_output:
-        write_aniso_kernel(w, sigma1, sigma2, angle)
+        write_aniso_kernel(m, sigma1, sigma2, angle)
