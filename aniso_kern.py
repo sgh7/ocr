@@ -95,7 +95,7 @@ def gaussian_filter1d_origin(width, sigma, origin=0):
     weights = gaussian_filter1d_weights(sigma)
     return scipy.ndimage.correlate1d(m, weights, origin=origin)
 
-def generate_sum_gauss(gp, ortho_sigma, angle):
+def generate_sum_gauss(gp, ortho_sigma, angle, plot_unrot_kernel=False, plot_rot_kernel=False, verbose=False):
     """Compute sum of colinear anisotropic Gaussian filters.
 
     gp  is an Nx3 array of parameters for the Gaussian functions
@@ -132,7 +132,8 @@ def generate_sum_gauss(gp, ortho_sigma, angle):
     variances = np.meshgrid(x, gp['sigma']*gp['sigma'])[1]
     amplitudes = np.meshgrid(x, gp['a'])[1]
     wa = amplitudes * np.exp(-0.5 * arg*arg / variances)
-    print "shapes: x", x.shape, "variances", variances.shape, "wa", wa.shape
+    if verbose:
+        print "shapes: x", x.shape, "variances", variances.shape, "wa", wa.shape
     weights = wa.sum(axis=0) / wa.sum()
 
     if False:
@@ -143,9 +144,9 @@ def generate_sum_gauss(gp, ortho_sigma, angle):
         m[w] = 1.0
         corr_1d = scipy.ndimage.correlate1d(m, weights)
     
-        print "weights len=%d" % weights.shape, weights
-        print weights
-        print "corr_1d len=%d" % corr_1d.shape, corr_1d
+        #print "weights len=%d" % weights.shape, weights
+        #print weights
+        #print "corr_1d len=%d" % corr_1d.shape, corr_1d
         fig, (ax1, ax2) = plt.subplots(1, 2)
         ax1.plot(x, weights, "r+")
         ax2.plot(range(b), corr_1d, "g+")
@@ -155,27 +156,32 @@ def generate_sum_gauss(gp, ortho_sigma, angle):
         m[w,...] = corr_1d
 
     m = np.zeros((b,b), dtype=np.float)
-    print "b", b, "weights.len", len(weights)
     m[b//2,...] = weights
     ortho_weights = gaussian_filter1d_weights(ortho_sigma)
     wm = scipy.ndimage.correlate1d(m, ortho_weights, axis=0)
 
-    print "wm shape", wm.shape
+    if verbose:
+        print "b", b, "weights.len", len(weights)
+        print "wm shape", wm.shape
 
-    plt.imshow(wm)
-    plt.show()
+    if plot_unrot_kernel:
+        plt.imshow(wm)
+        plt.show()
 
     rotated = scipy.ndimage.rotate(wm, angle)
     row, col = divmod(rotated.argmax(), rotated.shape[0])
-    print "max at", row, col
+    if verbose:
+        print "max at", row, col
 
-    plt.imshow(rotated)
-    plt.show()
+    if plot_rot_kernel:
+        plt.imshow(rotated)
+        plt.show()
 
-    print rotated.sum(axis=0)
-    print rotated.sum(axis=1)
-    print rotated.shape
-    print rotated.sum()
+    if verbose:
+        print rotated.sum(axis=0)
+        print rotated.sum(axis=1)
+        print rotated.shape
+        print rotated.sum()
     return rotated
     
 def write_aniso_kernel(m, sigma1, sigma2, angle):
