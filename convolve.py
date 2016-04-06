@@ -10,6 +10,66 @@ import matplotlib.cm as cm
 import getopt
 from skimage import color, data, restoration
 from aniso_kern import parse_gauss_parm_str, generate_sum_gauss
+import pymc as pm
+
+def run_mcmc(gp, transverse_sigma=1.0, motion_angle=0.0):
+    """Estimate PSF using Markov Chain Monte Carlo
+
+    gp - Gaussian priors
+    transverse_sigma - prior
+    motion_angle - prior
+    """
+
+    motion_angle = pm.VonMises("motion_angle", motion_angle, 1.0)
+    transverse_sigma = pm.Exponential("transverse_sigma", 1.0)
+    N = gp.shape[0]
+
+    mixing_coeffs = pm.Exponential("mixing_coeffs", 1.0, size=N)
+    #mixing_coeffs.set_value(gp['a'])
+    mixing_coeffs.value = gp['a']
+    longitudinal_sigmas = pm.Exponential("longitudinal_sigmas", 1.0, size=N)
+    #longitudinal_sigmas.set_value(gp['sigma'])
+    longitudinal_sigmas.value = gp['sigma']
+    longitudinal_means = pm.Normal("longitudinal_means", 0.0, 0.04, size=N)
+    #longitudinal_means.set_value(gp['b'])
+    longitudinal_means.value = gp['b']
+
+    dtype=np.dtype([('a', np.float),('b', np.float),('sigma', np.float)])
+
+    @pm.deterministic
+    def psf(mixing_coeffs=mixing_coeffs, longitudinal_sigmas=longitudinal_sigmas, \
+            longitudinal_means=longitudinal_means, transverse_sigma=transverse_sigma, motion_angle=motion_angle):
+        gp = np.ones((N,), dtype=dtype)
+        gp['a'] = mixing_coeffs
+        gp['b'] = longitudinal_means
+        gp['sigma'] = longitudinal_sigmas
+        return generate_sum_gauss(gp, transverse_sigma, motion_angle)
+
+    trial_psf = generate_sum_gauss(gp, 2.0, 50.0, plot_unrot_kernel=True, plot_rot_kernel=True, verbose=True)
+    print "trial_psf", trial_psf.min(), trial_psf.mean(), trial_psf.max(), trial_psf.std()
+    obs_psf = pm.Uniform("obs_psf", lower=-1.0, upper=1.0, doc="Point Spread Function", value=trial_psf, observed=True, verbose=False)
+    
+    
+    mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, longitudinal_means, obs_psf])
+    mcmc.sample(20000, 1000)
+
+    motion_angle_samples = mcmc.trace("motion_angle")[:]
+    transverse_sigma_samples = mcmc.trace("transverse_sigma")[:]
+    
+    ax = plt.subplot(211)
+    plt.hist(motion_angle_samples, histtype='stepfilled', bins=25, alpha=0.85,
+         label="posterior of $p_\\theta$", color="#A60628", normed=True)
+    plt.legend(loc="upper right")
+    plt.title("Posterior distributions of $p_\\theta$, $p_\\sigma$")
+
+    ax = plt.subplot(212)
+    plt.hist(transverse_sigma_samples, histtype='stepfilled', bins=25, alpha=0.85,
+         label="posterior of $p_\\sigma$", color="#467821", normed=True)
+    plt.legend(loc="upper right")
+    plt.show()
+
+
+    
 
 def plot_image(img, title):
     figure, axes = plt.subplots(1, 2)
@@ -57,10 +117,11 @@ options:
 
 -p <a1,b1,sigma1:a2,b2,sigma2:...> specify Gaussian functions to be summed
 -s <sigma> sigma for Gaussian blur in orthogonal direction
--a <angle> rotation (with -p option only)
+-a <motion_angle> rotation (with -p option only)
 
 -T <img file> target (blurry) image file to compare result of blurring with
 -N <nf>    add noise factor
+-M         run MCMC
 """ % (progname, progname)
 
 progname = sys.argv[0]
@@ -69,14 +130,15 @@ kern_file = None
 fold_pixels_to_monochrome = False
 colour_plane = None
 gp = None
-ortho_sigma = None
-angle = None
+transverse_sigma = None
+motion_angle = None
 noise_factor = None
 pre_pad = None
 compare_img = None
+do_mcmc = False
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:k:s:p:a:N:P:T:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:k:s:p:a:N:P:T:M:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -96,15 +158,17 @@ for flag, value in opts:
     elif flag == '-p':
         gp = parse_gauss_parm_str(value)
     elif flag == '-a':
-        angle = float(value)
+        motion_angle = float(value)
     elif flag == '-s':
-        ortho_sigma = float(value)
+        transverse_sigma = float(value)
     elif flag == '-N':
         noise_factor = float(value)
     elif flag == '-P':
         pre_pad = int(value)
     elif flag == '-T':
         compare_img = io.imread(value)
+    elif flag == '-M':
+        do_mcmc = True
     else:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
@@ -122,6 +186,10 @@ elif colour_plane:
     sample_how = "Colour "+colour_plane
 else:
     sample_how = "Original"
+
+if do_mcmc:
+    run_mcmc(gp, transverse_sigma=transverse_sigma if transverse_sigma else 1.0, motion_angle=motion_angle if motion_angle else 0.0)
+    sys.exit(0)
 
 if pre_pad:
     img = pre_pad_image(img, pre_pad)
@@ -143,7 +211,7 @@ if kern_file:
     kern = eval(''.join(k_spec))
     process_how = "Convolve with " + kern_file
 elif gp is not None:
-    kern = generate_sum_gauss(gp, ortho_sigma if ortho_sigma else 1.0, angle if angle else 0.0)
+    kern = generate_sum_gauss(gp, transverse_sigma if transverse_sigma else 1.0, motion_angle if motion_angle else 0.0)
     process_how = "Convolve with generated kernel"
 
 if kern is not None:
