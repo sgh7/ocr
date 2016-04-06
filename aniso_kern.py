@@ -134,6 +134,7 @@ def generate_sum_gauss(gp, ortho_sigma, angle, plot_unrot_kernel=False, plot_rot
     wa = amplitudes * np.exp(-0.5 * arg*arg / variances)
     if verbose:
         print "shapes: x", x.shape, "variances", variances.shape, "wa", wa.shape
+        print "wa:", wa.min(), wa.mean(), wa.max(), wa.std()
     weights = wa.sum(axis=0) / wa.sum()
 
     if False:
@@ -163,6 +164,7 @@ def generate_sum_gauss(gp, ortho_sigma, angle, plot_unrot_kernel=False, plot_rot
     if verbose:
         print "b", b, "weights.len", len(weights)
         print "wm shape", wm.shape
+        print "wm:", wm.min(), wm.mean(), wm.max(), wm.std()
 
     if plot_unrot_kernel:
         plt.imshow(wm)
@@ -178,10 +180,9 @@ def generate_sum_gauss(gp, ortho_sigma, angle, plot_unrot_kernel=False, plot_rot
         plt.show()
 
     if verbose:
-        print rotated.sum(axis=0)
-        print rotated.sum(axis=1)
-        print rotated.shape
-        print rotated.sum()
+        print "rotated sums:", rotated.sum(axis=0), rotated.sum(axis=1)
+        print "rotated: shape", rotated.shape, "sum", rotated.sum()
+        print "rotated:", rotated.min(), rotated.mean(), rotated.max(), rotated.std()
     return rotated
     
 def write_aniso_kernel(m, sigma1, sigma2, angle):
