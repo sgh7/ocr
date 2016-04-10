@@ -51,6 +51,8 @@ def run_mcmc(gp, transverse_sigma=1.0, motion_angle=0.0):
     
     
     mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, longitudinal_means, obs_psf])
+    pm.graph.dag(mcmc, format='png')
+    plt.show()
     mcmc.sample(20000, 1000)
 
     motion_angle_samples = mcmc.trace("motion_angle")[:]
@@ -66,6 +68,11 @@ def run_mcmc(gp, transverse_sigma=1.0, motion_angle=0.0):
     plt.hist(transverse_sigma_samples, histtype='stepfilled', bins=25, alpha=0.85,
          label="posterior of $p_\\sigma$", color="#467821", normed=True)
     plt.legend(loc="upper right")
+    plt.show()
+
+    print mcmc.stats()
+    mcmc.write_csv("out.csv")
+    pm.Matplot.plot(mcmc)
     plt.show()
 
 
