@@ -12,7 +12,7 @@ from skimage import color, data, restoration
 from aniso_kern import parse_gauss_parm_str, generate_sum_gauss
 import pymc as pm
 
-def run_mcmc(gp, transverse_sigma=1.0, motion_angle=0.0):
+def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     """Estimate PSF using Markov Chain Monte Carlo
 
     gp - Gaussian priors
@@ -45,18 +45,41 @@ def run_mcmc(gp, transverse_sigma=1.0, motion_angle=0.0):
         gp['sigma'] = longitudinal_sigmas
         return generate_sum_gauss(gp, transverse_sigma, motion_angle)
 
-    trial_psf = generate_sum_gauss(gp, 2.0, 50.0, plot_unrot_kernel=True, plot_rot_kernel=True, verbose=True)
-    print "trial_psf", trial_psf.min(), trial_psf.mean(), trial_psf.max(), trial_psf.std()
-    obs_psf = pm.Uniform("obs_psf", lower=-1.0, upper=1.0, doc="Point Spread Function", value=trial_psf, observed=True, verbose=False)
+    @pm.deterministic
+    def image_fitness(psf=psf, img=img, compare_img=compare_img):
+        img_convolved = ndimage.convolve(img, psf)
+        img_diff = img_convolved.astype(int)-compare_img
+        return img_diff.std()
+
+    if False:
+        trial_psf = generate_sum_gauss(gp, 2.0, 50.0, plot_unrot_kernel=True, plot_rot_kernel=True, verbose=True)
+        print "trial_psf", trial_psf.min(), trial_psf.mean(), trial_psf.max(), trial_psf.std()
+        obs_psf = pm.Uniform("obs_psf", lower=-1.0, upper=1.0, doc="Point Spread Function", value=trial_psf, observed=True, verbose=False)
+
     
     
-    mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, longitudinal_means, obs_psf])
+    mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, longitudinal_means, image_fitness], verbose=2)
     pm.graph.dag(mcmc, format='png')
     plt.show()
-    mcmc.sample(20000, 1000)
+    #mcmc.sample(20000, 1000)
+    mcmc.sample(2000, 1000)
 
     motion_angle_samples = mcmc.trace("motion_angle")[:]
     transverse_sigma_samples = mcmc.trace("transverse_sigma")[:]
+    image_fitness_samples = mcmc.trace("image_fitness")[:]
+
+    best_fit = np.percentile(image_fitness_samples, 1.0)
+    best_fit_selection = image_fitness_samples<best_fit
+
+    print mcmc.db.trace_names
+    for k in [k for k in mcmc.stats().keys() if k != "image_fitness"]:
+        #samples = mcmc.trace(k)[:]
+        samples = mcmc.trace(k).gettrace()
+        print samples.shape
+        selected_samples = samples[best_fit_selection]
+        print k, samples.mean(axis=0), samples.std(axis=0), \
+            selected_samples.mean(axis=0), selected_samples.std(axis=0)
+
     
     ax = plt.subplot(211)
     plt.hist(motion_angle_samples, histtype='stepfilled', bins=25, alpha=0.85,
@@ -71,6 +94,7 @@ def run_mcmc(gp, transverse_sigma=1.0, motion_angle=0.0):
     plt.show()
 
     print mcmc.stats()
+    # deprecated?  use discrepancy...  print mcmc.goodness()
     mcmc.write_csv("out.csv")
     pm.Matplot.plot(mcmc)
     plt.show()
@@ -145,7 +169,7 @@ compare_img = None
 do_mcmc = False
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:k:s:p:a:N:P:T:M:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:k:s:p:a:N:P:T:M")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -174,6 +198,7 @@ for flag, value in opts:
         pre_pad = int(value)
     elif flag == '-T':
         compare_img = io.imread(value)
+        #print "from file", value, "got", compare_img
     elif flag == '-M':
         do_mcmc = True
     else:
@@ -194,15 +219,15 @@ elif colour_plane:
 else:
     sample_how = "Original"
 
-if do_mcmc:
-    run_mcmc(gp, transverse_sigma=transverse_sigma if transverse_sigma else 1.0, motion_angle=motion_angle if motion_angle else 0.0)
-    sys.exit(0)
-
 if pre_pad:
     img = pre_pad_image(img, pre_pad)
     if compare_img is not None:
         compare_img = pre_pad_image(compare_img, pre_pad)
         
+if do_mcmc:
+    run_mcmc(gp, img, compare_img, transverse_sigma=transverse_sigma if transverse_sigma else 1.0, motion_angle=motion_angle if motion_angle else 0.0)
+    sys.exit(0)
+
 
 plt.title(sample_how+" image")
 plt.imshow(img, cmap = cm.Greys_r)
