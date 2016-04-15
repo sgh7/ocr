@@ -15,13 +15,31 @@ import pymc as pm
 def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     """Estimate PSF using Markov Chain Monte Carlo
 
-    gp - Gaussian priors
+    gp - Gaussian priors - array of N objects with attributes
+                           a, b, sigma
+
+    img  - image to apply PSF to
+    compare_img - comparison image
     transverse_sigma - prior
     motion_angle - prior
+
+
+    Model a Point Spread Function consisting of the sum of N
+    collinear Gaussians, blurred in the transverse direction
+    and the result rotated.  Each of the collinear Gauusians
+    is parameterized by a (amplitude), b (center), and sigma (std. deviation). 
+
+    The Point Spread Function is applied to the image img
+    and the result compared with the image  compare_img.
     """
 
-    motion_angle = pm.VonMises("motion_angle", motion_angle, 1.0)
-    transverse_sigma = pm.Exponential("transverse_sigma", 1.0)
+    print gp.shape
+    print gp
+
+    motion_angle = np.deg2rad(motion_angle)
+    motion_angle = pm.VonMises("motion_angle", motion_angle, 1.0, value=motion_angle)
+    
+    transverse_sigma = pm.Exponential("transverse_sigma", 1.0, value=transverse_sigma)
     N = gp.shape[0]
 
     mixing_coeffs = pm.Exponential("mixing_coeffs", 1.0, size=N)
@@ -43,7 +61,13 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
         gp['a'] = mixing_coeffs
         gp['b'] = longitudinal_means
         gp['sigma'] = longitudinal_sigmas
-        return generate_sum_gauss(gp, transverse_sigma, motion_angle)
+        motion_angle_deg = np.rad2deg(motion_angle)
+        if False:
+            print "gp: a", mixing_coeffs
+            print "    b", longitudinal_means
+            print "    s", longitudinal_sigmas
+            print "tr-sigma", transverse_sigma, "angle=", motion_angle_deg
+        return generate_sum_gauss(gp, transverse_sigma, motion_angle_deg)
 
     @pm.deterministic
     def image_fitness(psf=psf, img=img, compare_img=compare_img):
@@ -62,7 +86,7 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     pm.graph.dag(mcmc, format='png')
     plt.show()
     #mcmc.sample(20000, 1000)
-    mcmc.sample(2000, 1000)
+    mcmc.sample(2000)
 
     motion_angle_samples = mcmc.trace("motion_angle")[:]
     transverse_sigma_samples = mcmc.trace("transverse_sigma")[:]
@@ -129,6 +153,11 @@ def pre_pad_image(img, pre_pad):
     pad_value = int(image_edge_pixels(img).mean())
     return np.pad(img, pre_pad, mode='constant', constant_values=pad_value)
 
+def pad_to_size(img, new_shape):
+    old_shape = img.shape
+    pad = [tuple([(new_shape[i]-el)//2]*2) for (i, el) in enumerate(old_shape)]
+    pad_value = int(image_edge_pixels(img).mean())
+    return np.pad(img, pad, mode='constant', constant_values=pad_value)
 
 def help():
     print """
@@ -150,6 +179,8 @@ options:
 -s <sigma> sigma for Gaussian blur in orthogonal direction
 -a <motion_angle> rotation (with -p option only)
 
+-w <img file>  save blurred image
+
 -T <img file> target (blurry) image file to compare result of blurring with
 -N <nf>    add noise factor
 -M         run MCMC
@@ -167,9 +198,10 @@ noise_factor = None
 pre_pad = None
 compare_img = None
 do_mcmc = False
+save_blur_filename = None
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:k:s:p:a:N:P:T:M")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:k:s:p:a:N:P:T:Mw:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -201,6 +233,8 @@ for flag, value in opts:
         #print "from file", value, "got", compare_img
     elif flag == '-M':
         do_mcmc = True
+    elif flag == '-w':
+        save_blur_filename = value
     else:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
@@ -222,7 +256,8 @@ else:
 if pre_pad:
     img = pre_pad_image(img, pre_pad)
     if compare_img is not None:
-        compare_img = pre_pad_image(compare_img, pre_pad)
+        if compare_img.shape != img.shape:   # FIXME: special case logic - generalize!
+            compare_img = pre_pad_image(compare_img, pre_pad)
         
 if do_mcmc:
     run_mcmc(gp, img, compare_img, transverse_sigma=transverse_sigma if transverse_sigma else 1.0, motion_angle=motion_angle if motion_angle else 0.0)
@@ -248,6 +283,8 @@ elif gp is not None:
 
 if kern is not None:
     img = ndimage.convolve(img, kern)
+    if save_blur_filename is not None:
+        io.imsave(save_blur_filename, img)
 
 if noise_factor is not None:
     img += noise_factor * img.std() * np.random.standard_normal(img.shape)
@@ -271,6 +308,8 @@ if kern is not None:
         plt.imshow(img, cmap = cm.Greys_r)
         plt.show()
     if compare_img is not None:
+        if compare_img.shape != img.shape:
+            compare_img = pad_to_size(compare_img, img.shape)
         img_diff = img.astype(int)-compare_img
         print "sd of diff", img_diff.std()
         plot_images([(img, "Blurred Original"), (img_diff, "Image minus reference"), (compare_img, "Reference")])
@@ -281,5 +320,7 @@ if kern is not None:
     plt.show()
 
 
+    if deconv.shape != orig_img.shape:
+        orig_img = pad_to_size(orig_img, deconv.shape)
     plot_image(deconv-orig_img, "Image difference")
 
