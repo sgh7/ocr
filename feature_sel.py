@@ -38,6 +38,7 @@ options:
 -d <delta> amount to tweak threshold value from Otsu algorithm
 -w <block_size> window size for local thresholding (must be positive odd integer)
 -m         fold pixels to monochrome by averaging RGB values
+-H <filename> output filtered image to file and quit
 -M <x,y>   specify maximum glyph sizes in pixels
 -s         generate splines for segmentation assistance
 -o <outfile>  output pickled results
@@ -113,6 +114,12 @@ def show_image(label, img, show_values=False):
         print img
 
 
+def scale_0to1(m):
+    """Scale array to domain [0,1]."""
+    m = m - m.min()
+    m = m / m.max()
+    return m
+
 
 progname = sys.argv[0]
 verbose = False
@@ -124,6 +131,7 @@ block_size = None
 max_bb_x = 48
 max_bb_y = 48
 outfname = None
+out_hpass_file = None   # High-passed filtered image to be written to this file
 splines = None
 gb_sigma = 0.0
 threshold_offset = 0.4
@@ -134,7 +142,7 @@ depth_threshold = 0.3
 width_threshold = 0.2
 
 try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:w:")
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:w:H:")
 except getopt.GetoptError, exc:
     print >>sys.stderr, "%s: %s" % (progname, str(exc))
     sys.exit(1)
@@ -163,6 +171,8 @@ for flag, value in opts:
         splines = []
     elif flag == '-g':
         gb_sigma = float(value)
+    elif flag == '-H':
+        out_hpass_file = value
     else:
         print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
         sys.exit(5)
@@ -381,6 +391,12 @@ else:
     process_how = "unmodified Original image"
 
 show_image(process_how, img)
+
+if out_hpass_file:
+    io.imsave(out_hpass_file, scale_0to1(img))
+    print "written processed image to ", out_hpass_file
+    sys.exit(0)
+
 #plt.title(process_how+" image")
 #plt.imshow(img, cmap = cm.Greys_r)
 #plt.show()
@@ -446,11 +462,6 @@ def local_sum(g, d, pad=0):
             g[pad-d  :h+pad-d  , pad-d  :w+pad-d  ]) - \
            (g[pad-d  :h+pad-d  , pad+d-1:w+pad+d-1] +
             g[pad+d-1:h+pad+d-1, pad-d  :w+pad-d  ])
-
-def scale(m):
-    m = m - m.min()
-    m = m / m.max()
-    return m
 
 def latt(k, lmean, lmd, wsize, show_plot=False):
     """Perform Local Adaptive Thresholding Technique of Binarization.
@@ -527,7 +538,7 @@ elif block_size is not None:
 
     d = int(round(block_size/2.0))
     pad = d+1
-    scaled_img = scale(img)
+    scaled_img = scale_0to1(img)
     print "scaled_img: max %g min %g mean %g std-dev %g" % (scaled_img.max(), scaled_img.min(), scaled_img.mean(), scaled_img.std())
     print scaled_img
     padded_iimg = np.pad(integral_image(scaled_img), pad, mode='reflect')
