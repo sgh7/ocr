@@ -53,9 +53,9 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     cut_points = (b[1:]+b[:-1])*0.5
     long_means = [None]*b.shape[0]
     print long_means
-    left_mean = pm.Gamma("left_mean", 1.0, gp['a'][0])
+    left_mean = pm.Gamma("left_mean", 1.0, 2.5*gp['sigma'][0])
     long_means[0] = cut_points[0] - left_mean
-    right_mean = pm.Gamma("right_mean", 1.0, gp['a'][-1])
+    right_mean = pm.Gamma("right_mean", 1.0, 2.5*gp['sigma'][-1])
     long_means[-1] = cut_points[-1] + right_mean
     for ix in range(1,N-1):
         long_means[ix] = pm.Uniform("mid%d_mean" % ix, lower=cut_points[ix-1], upper=cut_points[ix])
