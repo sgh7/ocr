@@ -33,8 +33,8 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     and the result compared with the image  compare_img.
     """
 
-    print gp.shape
-    print gp
+    print "gp.shape", gp.shape
+    print "gp", gp
 
     motion_angle = np.deg2rad(motion_angle)
     motion_angle = pm.VonMises("motion_angle", motion_angle, 1.0, value=motion_angle)
@@ -48,21 +48,34 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     longitudinal_sigmas = pm.Exponential("longitudinal_sigmas", 1.0, size=N)
     #longitudinal_sigmas.set_value(gp['sigma'])
     longitudinal_sigmas.value = gp['sigma']
-    longitudinal_means = pm.Normal("longitudinal_means", 0.0, 0.04, size=N)
-    #longitudinal_means.set_value(gp['b'])
-    longitudinal_means.value = gp['b']
+
+    b = np.array(sorted(gp['b']), dtype=float)
+    cut_points = (b[1:]+b[:-1])*0.5
+    long_means = [None]*b.shape[0]
+    print long_means
+    left_mean = pm.Gamma("left_mean", 1.0, gp['a'][0])
+    long_means[0] = cut_points[0] - left_mean
+    right_mean = pm.Gamma("right_mean", 1.0, gp['a'][-1])
+    long_means[-1] = cut_points[-1] + right_mean
+    for ix in range(1,N-1):
+        long_means[ix] = pm.Uniform("mid%d_mean" % ix, lower=cut_points[ix-1], upper=cut_points[ix])
+    print "cut_points", cut_points
+    print "long_means", long_means
+
+    #longitudinal_means = pm.Normal("longitudinal_means", 0.0, 0.04, size=N)
+    #longitudinal_means.value = gp['b']
 
     dtype=np.dtype([('a', np.float),('b', np.float),('sigma', np.float)])
 
     @pm.deterministic
     def psf(mixing_coeffs=mixing_coeffs, longitudinal_sigmas=longitudinal_sigmas, \
-            longitudinal_means=longitudinal_means, transverse_sigma=transverse_sigma, motion_angle=motion_angle):
+            longitudinal_means=long_means, transverse_sigma=transverse_sigma, motion_angle=motion_angle):
         gp = np.ones((N,), dtype=dtype)
         gp['a'] = mixing_coeffs
         gp['b'] = longitudinal_means
         gp['sigma'] = longitudinal_sigmas
         motion_angle_deg = np.rad2deg(motion_angle)
-        if False:
+        if True:
             print "gp: a", mixing_coeffs
             print "    b", longitudinal_means
             print "    s", longitudinal_sigmas
@@ -80,9 +93,12 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
         print "trial_psf", trial_psf.min(), trial_psf.mean(), trial_psf.max(), trial_psf.std()
         obs_psf = pm.Uniform("obs_psf", lower=-1.0, upper=1.0, doc="Point Spread Function", value=trial_psf, observed=True, verbose=False)
 
+    print "image_fitness value started at", image_fitness.value
+    known_fitness = pm.Exponential("fitness", image_fitness+0.001, value=0.669, observed=True)
     
     
-    mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, longitudinal_means, image_fitness], verbose=2)
+    #mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, longitudinal_means, image_fitness, known_fitness], verbose=2)
+    mcmc = pm.MCMC([motion_angle, transverse_sigma, mixing_coeffs, longitudinal_sigmas, image_fitness, known_fitness, left_mean, right_mean]+long_means, verbose=2)
     pm.graph.dag(mcmc, format='png')
     plt.show()
     #mcmc.sample(20000, 1000)
@@ -96,7 +112,7 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     best_fit_selection = image_fitness_samples<best_fit
 
     print mcmc.db.trace_names
-    for k in [k for k in mcmc.stats().keys() if k != "image_fitness"]:
+    for k in [k for k in mcmc.stats().keys() if k != "known_fitness"]:
         #samples = mcmc.trace(k)[:]
         samples = mcmc.trace(k).gettrace()
         print samples.shape
@@ -117,7 +133,8 @@ def run_mcmc(gp, img, compare_img, transverse_sigma=1.0, motion_angle=0.0):
     plt.legend(loc="upper right")
     plt.show()
 
-    print mcmc.stats()
+    for k, v in mcmc.stats().iteritems():
+        print k, v
     # deprecated?  use discrepancy...  print mcmc.goodness()
     mcmc.write_csv("out.csv")
     pm.Matplot.plot(mcmc)
