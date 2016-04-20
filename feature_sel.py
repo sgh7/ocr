@@ -1,6 +1,10 @@
 #!/usr/bin/python
 # coding: utf-8
 
+"""Feature finder for images containing formatted text.
+
+"""
+
 import sys
 import getopt
 import numpy as np
@@ -8,12 +12,12 @@ from skimage import io
 from skimage import filters
 from skimage import img_as_ubyte
 from skimage.transform import integral_image
-import skimage.segmentation as seg
-from scipy import ndimage
-from scipy import signal
 from skimage import measure
 from skimage.filters.rank import median, enhance_contrast
 from skimage.morphology import disk
+import skimage.segmentation as seg
+from scipy import ndimage
+from scipy import signal
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import cPickle
@@ -21,185 +25,6 @@ from ocr_utils import *
 from valley import find_local_minimum
 from scipy import interpolate
 
-def help():
-    print """
-%s select features from a single page image
-
-Use:
- %s [options] <img-file>
-
-options:
-
--h         this help
--v         be verbose
--g <sigma> Gaussian filter parameter
--k <file>  read specification of kernel to convolve with incoming image from file
--c [R|G|B] select color plane from incoming image
--d <delta> amount to tweak threshold value from Otsu algorithm
--w <block_size> window size for local thresholding (must be positive odd integer)
--m         fold pixels to monochrome by averaging RGB values
--H <filename> output filtered image to file and quit
--M <x,y>   specify maximum glyph sizes in pixels
--s         generate splines for segmentation assistance
--o <outfile>  output pickled results
-
-   x
-""" % (progname, progname)
-
-def plot_with_histogram(img, title='', Otsu_threshold=None, used_threshold=None):
-    #img_bytes = img_as_ubyte(img, force_copy=True)
-    hist = np.histogram(img, bins=256)
-    max_ordinate = np.max(hist[0])
-    fig, (ax1, ax2) = plt.subplots(1, 2)
-    ax1.imshow(img, interpolation='nearest', cmap=plt.cm.gray)
-    ax1.axis('off')
-    ax1.set_title(title)
-    ax2.plot(hist[1][:-1], hist[0], lw=2)
-    if Otsu_threshold:
-        ax2.plot([Otsu_threshold]*2, [0, max_ordinate], 'g-')
-    if used_threshold:
-        ax2.plot([used_threshold]*2, [0, max_ordinate], 'r-')
-    ax2.set_title('Histogram of grey values')
-    plt.show()
-
-class Contour(object):
-    def __init__(self, cont):
-        self.cont = cont
-        self.cent = None
-
-    def centroid(self):
-        if not self.cent:
-            self.cent = self.cont[::, 0].mean(), self.cont[::, 1].mean()
-        return self.cent
-
-    def size(self):
-        return self.cont[::, 0].max() - self.cont[::, 0].min(),\
-               self.cont[::, 1].max() - self.cont[::, 1].min(),\
-
-    def position(self):
-        return self.cont[::, 0].min(), self.cont[::, 1].min()
-
-    def npoints(self):
-        return self.cont.shape[0]
-
-    def is_closed(self):
-        # FIXME: make this more succinct
-        return self.cont[0, 0] == self.cont[-1, 0] and \
-               self.cont[0, 1] == self.cont[-1, 1]
-
-def glyph_copy(mask, labeled_glyphs, label, size_y, size_x, gly_min_y, gly_min_x, h, w):
-    """copy glyph from original image.
-
-    mask    original image after modified Otsu algorithm applied
-    labeled_glyphs result of labelling original image
-    label           label to be copied
-    size_y, size_x  dimensions of output bitmap - should be same for all
-                    invocations
-    gly_min_y, gly_min_x  offsets within original image
-    h, w            height, width of bounding box of labeled region"""
-
-    out = np.zeros((size_y, size_x), dtype=np.bool)
-    for i in range(h):
-        for j in range(w):
-            if labeled_glyphs[gly_min_y+i, gly_min_x+j] == label:
-                out[i, j] = mask[gly_min_y+i, gly_min_x+j]
-    #print label, size_y, size_x, gly_min_y, gly_min_x, h, w
-    #show_glyph(out)
-    return out
-    
-def show_image(label, img, show_values=False):
-    print "%s image is %d-D of shape %s" % (label, img.ndim, img.shape),
-    print "dtype=%s min=%f max=%f" % (img.dtype.name, img.ravel().min(), img.ravel().max())
-    if show_values:
-        print img
-
-
-def scale_0to1(m):
-    """Scale array to domain [0,1]."""
-    m = m - m.min()
-    m = m / m.max()
-    return m
-
-
-progname = sys.argv[0]
-verbose = False
-kern_file = None
-fold_pixels_to_monochrome = False
-colour_plane = None
-otsu_tweak = None
-block_size = None
-max_bb_x = 48
-max_bb_y = 48
-outfname = None
-out_hpass_file = None   # High-passed filtered image to be written to this file
-splines = None
-gb_sigma = 0.0
-threshold_offset = 0.4
-
-vslice_samp_window = 150
-threshold_arg_curvature = 0.003
-depth_threshold = 0.3
-width_threshold = 0.2
-
-try:
-    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:w:H:")
-except getopt.GetoptError, exc:
-    print >>sys.stderr, "%s: %s" % (progname, str(exc))
-    sys.exit(1)
-
-for flag, value in opts:
-    if flag == '-h':
-        help()
-        sys.exit(1)
-    elif flag == '-v':
-        verbose = True
-    elif flag == '-m':
-        fold_pixels_to_monochrome = True
-    elif flag == '-M':
-        max_bb_x, max_bb_y = tuple([int(s) for s in value.split(',')])
-    elif flag == '-c':
-        colour_plane = value
-    elif flag == '-o':
-        outfname = value
-    elif flag == '-d':
-        otsu_tweak = float(value)
-    elif flag == '-w':
-        block_size = float(value)
-    elif flag == '-k':
-        kern_file = value
-    elif flag == '-s':
-        splines = []
-    elif flag == '-g':
-        gb_sigma = float(value)
-    elif flag == '-H':
-        out_hpass_file = value
-    else:
-        print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
-        sys.exit(5)
-
-img_fname = files[0]
-
-img = io.imread(img_fname)
-
-show_image("Original", img)
-
-sample_how = None
-if fold_pixels_to_monochrome:
-    #img = (img[::,::,0]+img[::,::,1]+img[::,::,2])/3
-    img = img.mean(axis=2)
-    sample_how = "Averaged"
-elif colour_plane:
-    img = img[::,::,"RGB".index(colour_plane)] + 0.0
-    sample_how = "Colour "+colour_plane
-
-if sample_how:
-    show_image(sample_how, img)
-else:
-    sample_how = "Original"
-
-plt.title(sample_how+" image")
-plt.imshow(img, cmap = cm.Greys_r)
-plt.show()
 
 def deriv2_of_horiz_bands(img, hband_size):
     """For each horizontal band in image, calculate second
@@ -230,7 +55,6 @@ def deriv2_of_horiz_bands(img, hband_size):
         dd = -signal.detrend(sum_)
         detr[sl_index,...] = dd / dd.std()
     return np.pad(d2, ((0,0), (1,1)), 'edge'), detr
-
 
 
 def plot_band0(img, vslice_samp_window):
@@ -361,22 +185,191 @@ def gen_splines(img, vslice_samp_window, threshold_arg_curvature, depth_threshol
                 splines.append(spl)
     return splines
 
+
+def plot_with_histogram(img, title='', Otsu_threshold=None, used_threshold=None):
+    #img_bytes = img_as_ubyte(img, force_copy=True)
+    hist = np.histogram(img, bins=256)
+    max_ordinate = np.max(hist[0])
+    fig, (ax1, ax2) = plt.subplots(1, 2)
+    ax1.imshow(img, interpolation='nearest', cmap=plt.cm.gray)
+    ax1.axis('off')
+    ax1.set_title(title)
+    ax2.plot(hist[1][:-1], hist[0], lw=2)
+    if Otsu_threshold:
+        ax2.plot([Otsu_threshold]*2, [0, max_ordinate], 'g-')
+    if used_threshold:
+        ax2.plot([used_threshold]*2, [0, max_ordinate], 'r-')
+    ax2.set_title('Histogram of grey values')
+    plt.show()
+
+class Contour(object):
+    def __init__(self, cont):
+        self.cont = cont
+        self.cent = None
+
+    def centroid(self):
+        if not self.cent:
+            self.cent = self.cont[::, 0].mean(), self.cont[::, 1].mean()
+        return self.cent
+
+    def size(self):
+        return self.cont[::, 0].max() - self.cont[::, 0].min(),\
+               self.cont[::, 1].max() - self.cont[::, 1].min(),\
+
+    def position(self):
+        return self.cont[::, 0].min(), self.cont[::, 1].min()
+
+    def npoints(self):
+        return self.cont.shape[0]
+
+    def is_closed(self):
+        # FIXME: make this more succinct
+        return self.cont[0, 0] == self.cont[-1, 0] and \
+               self.cont[0, 1] == self.cont[-1, 1]
+
+def glyph_copy(mask, labeled_glyphs, label, size_y, size_x, gly_min_y, gly_min_x, h, w):
+    """copy glyph from original image.
+
+    mask    original image after modified Otsu algorithm applied
+    labeled_glyphs result of labelling original image
+    label           label to be copied
+    size_y, size_x  dimensions of output bitmap - should be same for all
+                    invocations
+    gly_min_y, gly_min_x  offsets within original image
+    h, w            height, width of bounding box of labeled region"""
+
+    out = np.zeros((size_y, size_x), dtype=np.bool)
+    for i in range(h):
+        for j in range(w):
+            if labeled_glyphs[gly_min_y+i, gly_min_x+j] == label:
+                out[i, j] = mask[gly_min_y+i, gly_min_x+j]
+    #print label, size_y, size_x, gly_min_y, gly_min_x, h, w
+    #show_glyph(out)
+    return out
+    
+def show_image(label, img, show_values=False):
+    print "%s image is %d-D of shape %s" % (label, img.ndim, img.shape),
+    print "dtype=%s min=%f max=%f" % (img.dtype.name, img.ravel().min(), img.ravel().max())
+    if show_values:
+        print img
+
+
+def scale_0to1(m):
+    """Scale array to domain [0,1]."""
+    m = m - m.min()
+    m = m / m.max()
+    return m
+
+
+def help():
+    print """
+%s select features from a single page image
+
+Use:
+ %s [options] <img-file>
+
+options:
+
+-h         this help
+-v         be verbose
+-g <sigma> Gaussian filter parameter
+-k <file>  read specification of kernel to convolve with incoming image from file
+-c [R|G|B] select color plane from incoming image
+-d <delta> amount to tweak threshold value from Otsu algorithm
+-w <block_size> window size for local thresholding (must be positive odd integer)
+-m         fold pixels to monochrome by averaging RGB values
+-H <filename> output filtered image to file and quit
+-M <x,y>   specify maximum glyph sizes in pixels
+-s         generate splines for segmentation assistance
+-o <outfile>  output pickled results
+
+""" % (progname, progname)
+
+progname = sys.argv[0]
+verbose = False
+kern_file = None
+fold_pixels_to_monochrome = False
+colour_plane = None
+otsu_tweak = None
+block_size = None
+max_bb_x = 48
+max_bb_y = 48
+outfname = None
+out_hpass_file = None   # High-passed filtered image to be written to this file
+splines = None
+gb_sigma = 0.0
+threshold_offset = 0.4
+
+vslice_samp_window = 150
+threshold_arg_curvature = 0.003
+depth_threshold = 0.3
+width_threshold = 0.2
+
+try:
+    (opts, files) = getopt.getopt(sys.argv[1:], "hvmc:M:o:k:t:d:sg:w:H:")
+except getopt.GetoptError, exc:
+    print >>sys.stderr, "%s: %s" % (progname, str(exc))
+    sys.exit(1)
+
+for flag, value in opts:
+    if flag == '-h':
+        help()
+        sys.exit(1)
+    elif flag == '-v':
+        verbose = True
+    elif flag == '-m':
+        fold_pixels_to_monochrome = True
+    elif flag == '-M':
+        max_bb_x, max_bb_y = tuple([int(s) for s in value.split(',')])
+    elif flag == '-c':
+        colour_plane = value
+    elif flag == '-o':
+        outfname = value
+    elif flag == '-d':
+        otsu_tweak = float(value)
+    elif flag == '-w':
+        block_size = float(value)
+    elif flag == '-k':
+        kern_file = value
+    elif flag == '-s':
+        splines = []
+    elif flag == '-g':
+        gb_sigma = float(value)
+    elif flag == '-H':
+        out_hpass_file = value
+    else:
+        print >>sys.stderr, "%s: unknown flag %s" % (progname, flag)
+        sys.exit(5)
+
+img_fname = files[0]
+
+img = io.imread(img_fname)
+
+show_image("Original", img)
+
+sample_how = None
+if fold_pixels_to_monochrome:
+    #img = (img[::,::,0]+img[::,::,1]+img[::,::,2])/3
+    img = img.mean(axis=2)
+    sample_how = "Averaged"
+elif colour_plane:
+    img = img[::,::,"RGB".index(colour_plane)] + 0.0
+    sample_how = "Colour "+colour_plane
+
+if sample_how:
+    show_image(sample_how, img)
+else:
+    sample_how = "Original"
+
+plt.title(sample_how+" image")
+plt.imshow(img, cmap = cm.Greys_r)
+plt.show()
+
+
 if splines is not None:
     splines = gen_splines(img, vslice_samp_window, threshold_arg_curvature, depth_threshold, width_threshold)
     print splines
     
-kernel_3x3 = np.array([[-1, -1, -1],
-                   [-1,  8, -1],
-                   [-1, -1, -1]])
-
-kernel_5x5 = np.array([[-1, -1, -1, -1, -1],
-                   [-1,  1,  2,  1, -1],
-                   [-1,  2,  4,  2, -1],
-                   [-1,  1,  2,  1, -1],
-                   [-1, -1, -1, -1, -1]])
-highpass = ndimage.convolve(img, kernel_3x3)
-# not actually using the convolved image...
-
 if kern_file:
     with open(kern_file) as f:
         k_spec = [line for line in f.readlines() if not line.startswith('#')]
@@ -385,7 +378,6 @@ if kern_file:
     process_how = "Convolve with " + kern_file
 elif gb_sigma > 0.0:
     img = img - ndimage.gaussian_filter(img, gb_sigma)
-    #process_how = "Gaussian Sharpening σ=%f" % gb_sigma
     process_how = "Gaussian Sharpening $\\sigma=%.1f$" % gb_sigma
 else:
     process_how = "unmodified Original image"
@@ -592,7 +584,6 @@ if splines is not None:
 
 plt.title("Fattened Image mask from "+threshold_process_how)
 plt.imshow(mask_fat, cmap='gray')
-#plt.imshow(gauss_highpass, cmap = cm.Greys_r)
 plt.show()
 
 # Find contours at a constant value of 0.5
