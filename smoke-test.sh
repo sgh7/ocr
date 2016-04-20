@@ -9,9 +9,15 @@ trainingfile=p1b.train
 simfile=simb.out
 cl_img_file=single03b.png
 verbose=
+echo=
 
 if [ "$1" = "-v" ] ; then
 	verbose=-v
+	shift
+fi
+
+if [ "$1" = "-n" ] ; then
+	echo=echo
 	shift
 fi
 
@@ -25,12 +31,12 @@ fi
 
 # do feature selection
 if echo $tests | grep -q f ; then
-	./feature_sel.py $verbose -c B -g 15.0 -d 13 -o $picklefile $imgfile
+	$echo ./feature_sel.py $verbose -c B -g 15.0 -d 13 -o $picklefile $imgfile
 fi
 
 # output similarity matrix and training data
 if echo $tests | grep -q cst ; then
-	./cluster.py $verbose -S $simfile -r 0.3 -T $trainingfile $picklefile
+	$echo ./cluster.py $verbose -S $simfile -r 0.3 -T $trainingfile $picklefile
 fi
 
 # invalid flag combo should be caught
@@ -42,10 +48,10 @@ fi
 
 # write out image file showing all glyphs clustered and training glyphs marked
 if echo $tests | grep -q ci ; then
-	./cluster.py $verbose -r 0.3 -t $trainingfile -w $cl_img_file $picklefile
+	$echo ./cluster.py $verbose -r 0.3 -t $trainingfile -w $cl_img_file $picklefile
 fi
 
 # do final classification
 if echo $tests | grep -q class ; then
-	./classify.py $verbose -f $picklefile -t $trainingfile $imgfile
+	$echo ./classify.py $verbose -f $picklefile -t $trainingfile $imgfile
 fi
