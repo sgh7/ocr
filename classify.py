@@ -297,7 +297,7 @@ for fname in in_train_files:
 
 print "now have %d glyphs and %d labels" % (len(glyphs), len(labels))
 
-if True:
+if False:
     show_glyph(glyphs[1])
     show_glyph(glyphs[2])
     show_glyph(glyphs[1] ^ glyphs[2])
