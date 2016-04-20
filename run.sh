@@ -56,5 +56,5 @@ fi
 
 # do final classification
 if echo $tests | grep -q class ; then
-	$echo ./classify.py $verbose -f $featurefile -t $trainingfile $imgfile
+	$echo ./classify.py $verbose -f $featurefile -t $trainingfile -l X $imgfile
 fi
