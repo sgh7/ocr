@@ -1,0 +1,9 @@
+*.jpg
+*.jpeg
+*.png
+*.pickle
+*.feat
+*.sim
+*.train
+*.pyc
+*.kern
