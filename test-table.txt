@@ -1,4 +1,3 @@
-   FDS       lat    long slant incid emiss  phase  dim-hor  dim-vert resolution
      FDS     lat    long    slant  incid  emiss  phase dim-h dim-v   res
    27458   -64.3    21.8   20,760     68     29    102   260   195   415
    27459    71.0    23.3   19,990     63     41    101   250   187   400
